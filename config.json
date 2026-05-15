@@ -1,0 +1,53 @@
+{
+  "_comment": "Bot configuration file. Edit these values before starting the bot.",
+
+  "prefix": "!",
+
+  "credentials": {
+    "_comment": "Optional email/password for auto re-login when appstate expires. Leave empty strings to skip.",
+    "email": "",
+    "password": ""
+  },
+
+  "appStatePath": "./appstate.json",
+
+  "bot": {
+    "name": "NeoBot",
+    "version": "1.0.0",
+    "adminIDs": [],
+    "language": "en"
+  },
+
+  "features": {
+    "autoSaveAppState": true,
+    "autoSaveIntervalMs": 300000,
+    "greetNewMembers": true,
+    "farewellMembers": true,
+    "antiSpam": true,
+    "antiSpamCooldownMs": 3000,
+    "logMessages": true
+  },
+
+  "messages": {
+    "greet": "Welcome to the group, {name}! 👋",
+    "farewell": "Goodbye, {name}! We'll miss you. 👋",
+    "commandNotFound": "Unknown command '{cmd}'. Type {prefix}help for a list of commands.",
+    "errorOccurred": "⚠️ An error occurred while running that command.",
+    "botRestarted": "🤖 Bot session has been restored successfully!"
+  },
+
+  "loginOptions": {
+    "online": true,
+    "selfListen": false,
+    "listenEvents": true,
+    "listenTyping": false,
+    "autoMarkRead": true,
+    "autoMarkDelivery": false,
+    "autoReconnect": true,
+    "simulateTyping": true,
+    "forceLogin": false,
+    "maxConcurrentRequests": 5,
+    "maxRequestsPerMinute": 40,
+    "requestCooldownMs": 60000
+  }
+}
