@@ -1,0 +1,17 @@
+[
+  {
+    "_README": "Replace this file with your real Facebook appstate (session cookies).",
+    "_INSTRUCTIONS": [
+      "1. Open Facebook in Chrome/Edge/Firefox",
+      "2. Install 'C3C FbState' or 'Cookie-Editor' browser extension",
+      "3. Log in to Facebook",
+      "4. Export cookies as JSON array",
+      "5. Replace this entire file with the exported JSON array",
+      "",
+      "Minimum required cookies: c_user, xs, fr, datr",
+      "",
+      "Example format:",
+      "[ { \"key\": \"c_user\", \"value\": \"YOUR_USER_ID\" }, { \"key\": \"xs\", \"value\": \"YOUR_XS\" } ]"
+    ]
+  }
+]
