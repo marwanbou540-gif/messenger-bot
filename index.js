@@ -255,7 +255,9 @@ async function buildWelcomeMessage(api, name, threadID) {
   ].join("\n");
 }
 
-// ─── Handle thread events (join/leave) ────────────────────────────────────────
+// ─── Handle thread events (join/leave/rename) ─────────────────────────────────
+
+const { lockedNames } = require("./utils/lockedNames");
 
 async function handleEvent(api, event) {
   const { type, threadID, logMessageData } = event;
@@ -263,6 +265,7 @@ async function handleEvent(api, event) {
   if (type === "event") {
     const subtype = event.logMessageType;
 
+    // ── استقبال أعضاء جدد ──────────────────────────────────────────────────
     if (subtype === "log:subscribe" && config.features.greetNewMembers) {
       const ids = logMessageData?.addedParticipants?.map(p => p.userFbId) || [];
       for (const id of ids) {
@@ -272,6 +275,25 @@ async function handleEvent(api, event) {
           const msg  = await buildWelcomeMessage(api, name, threadID);
           api.sendMessage(msg, threadID);
         } catch {}
+      }
+    }
+
+    // ── قفل اسم المجموعة ───────────────────────────────────────────────────
+    if (subtype === "log:thread-name") {
+      const locked = lockedNames.get(threadID);
+      if (locked) {
+        const newName = logMessageData?.name || logMessageData?.threadName || "";
+        if (newName && newName !== locked) {
+          try {
+            await api.setTitle(locked, threadID);
+            api.sendMessage(
+              `🔒 تم استعادة اسم المجموعة إلى:\n«${locked}»\n\nالاسم مقفل ولا يمكن تغييره.`,
+              threadID
+            );
+          } catch (e) {
+            logger.error("LockName", `Failed to revert group name: ${e.message}`);
+          }
+        }
       }
     }
 
