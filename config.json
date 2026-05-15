@@ -1,7 +1,7 @@
 {
   "_comment": "Bot configuration file. Edit these values before starting the bot.",
 
-  "prefix": "!",
+  "prefix": "-",
 
   "credentials": {
     "_comment": "Optional email/password for auto re-login when appstate expires. Leave empty strings to skip.",
@@ -14,7 +14,7 @@
   "bot": {
     "name": "NeoBot",
     "version": "1.0.0",
-    "adminIDs": [],
+    "adminIDs": ["61586573840946"],
     "language": "en"
   },
 
