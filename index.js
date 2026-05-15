@@ -178,6 +178,75 @@ async function handleMessage(api, event, commands) {
   }
 }
 
+// ─── Build welcome message ────────────────────────────────────────────────────
+
+async function buildWelcomeMessage(api, name, threadID) {
+  const prefix = config.prefix;
+  const p      = prefix;
+
+  // جلب معلومات المجموعة
+  let groupName    = "المجموعة";
+  let memberCount  = "?";
+  try {
+    const info  = await api.getThreadInfo(threadID);
+    groupName   = info.name || "المجموعة";
+    memberCount = info.participantIDs?.length || "?";
+  } catch {}
+
+  return [
+    `╔═══════════════════════════╗`,
+    `║   👋  مرحباً بك يا ${name}`,
+    `╚═══════════════════════════╝`,
+    ``,
+    `📌 المجموعة : ${groupName}`,
+    `👥 الأعضاء  : ${memberCount} عضو`,
+    `🤖 البوت    : ${config.bot.name} v${config.bot.version}`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `📋  قائمة الأوامر الرئيسية`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    `  🔹 عامة`,
+    `    ${p}help     ┄ جميع الأوامر`,
+    `    ${p}ping     ┄ اختبار الاستجابة`,
+    `    ${p}info     ┄ معلومات البوت`,
+    `    ${p}uptime   ┄ مدة تشغيل البوت`,
+    ``,
+    `  🔹 معلومات`,
+    `    ${p}server   ┄ معلومات السيرفر`,
+    `    ${p}health   ┄ حالة الاتصال`,
+    `    ${p}time     ┄ الوقت الحالي`,
+    `    ${p}id       ┄ عرض الـ ID`,
+    ``,
+    `  🔸 إدارة المجموعة (مشرف)`,
+    `    ${p}members  ┄ قائمة الأعضاء`,
+    `    ${p}kick     ┄ طرد عضو`,
+    `    ${p}add      ┄ إضافة عضو`,
+    `    ${p}admin    ┄ ترقية / إنزال`,
+    `    ${p}rename   ┄ تغيير اسم المجموعة`,
+    `    ${p}announce ┄ إرسال إعلان`,
+    `    ${p}poll     ┄ إنشاء تصويت`,
+    `    ${p}mute     ┄ كتم البوت`,
+    ``,
+    `  🔸 الكنيات (مشرف)`,
+    `    ${p}nickname ┄ كنية عضو واحد`,
+    `    ${p}nickall  ┄ كنية الجميع دفعة`,
+    ``,
+    `  🎨 تخصيص (مشرف)`,
+    `    ${p}theme    ┄ تغيير التيمة`,
+    `    ${p}emoji    ┄ تغيير الإيموجي`,
+    ``,
+    `  🎮 ترفيه`,
+    `    ${p}coinflip ┄ رمي عملة`,
+    `    ${p}roll     ┄ رمي نرد`,
+    `    ${p}react    ┄ ريأكشن`,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `💡 اكتب ${p}help <أمر> لتفاصيل أي أمر`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+  ].join("\n");
+}
+
 // ─── Handle thread events (join/leave) ────────────────────────────────────────
 
 async function handleEvent(api, event) {
@@ -191,21 +260,42 @@ async function handleEvent(api, event) {
       for (const id of ids) {
         try {
           const info = await api.getUserInfo([id]);
-          const name = info[id]?.name || "New Member";
-          const msg  = formatMsg(config.messages.greet, { name });
+          const name = info[id]?.name || "عضو جديد";
+          const msg  = await buildWelcomeMessage(api, name, threadID);
           api.sendMessage(msg, threadID);
         } catch {}
       }
     }
 
     if (subtype === "log:unsubscribe" && config.features.farewellMembers) {
-      const name = logMessageData?.leftParticipantFbId
-        ? await api.getUserInfo([logMessageData.leftParticipantFbId])
-            .then(r => r[logMessageData.leftParticipantFbId]?.name || "Someone")
-            .catch(() => "Someone")
-        : "Someone";
-      const msg = formatMsg(config.messages.farewell, { name });
-      api.sendMessage(msg, threadID);
+      try {
+        const leftID = logMessageData?.leftParticipantFbId;
+        let name = "أحد الأعضاء";
+        if (leftID) {
+          const info = await api.getUserInfo([leftID]);
+          name = info[leftID]?.name || name;
+        }
+
+        // جلب عدد الأعضاء المتبقين
+        let remaining = "?";
+        try {
+          const threadInfo = await api.getThreadInfo(threadID);
+          remaining = threadInfo.participantIDs?.length || "?";
+        } catch {}
+
+        const msg = [
+          `╔══════════════════════════╗`,
+          `║   👋  وداعاً يا ${name}`,
+          `╚══════════════════════════╝`,
+          ``,
+          `😔 غادر ${name} المجموعة.`,
+          `👥 عدد الأعضاء المتبقين: ${remaining}`,
+          ``,
+          `نتمنى له/لها التوفيق! 🌟`,
+        ].join("\n");
+
+        api.sendMessage(msg, threadID);
+      } catch {}
     }
   }
 }
