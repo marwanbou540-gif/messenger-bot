@@ -1,0 +1,20 @@
+{
+  "name": "@workspace/messenger-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Facebook Messenger group bot powered by @neoaz07/nkxfca",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@neoaz07/nkxfca": "^1.0.10",
+    "chalk": "^4.1.2",
+    "os": "^0.1.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
