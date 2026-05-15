@@ -12,7 +12,7 @@
   "appStatePath": "./appstate.json",
 
   "bot": {
-    "name": "NeoBot",
+    "name": "Madox",
     "version": "1.0.0",
     "adminIDs": ["61586573840946"],
     "language": "en"
