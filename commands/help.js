@@ -5,42 +5,74 @@ const config = require("../config.json");
 module.exports = {
   name: "help",
   aliases: ["h", "cmds", "commands"],
-  description: "Show a list of all available commands.",
+  description: "عرض قائمة جميع الأوامر أو تفاصيل أمر معين.",
   usage: "help [command]",
   category: "General",
 
   async execute({ api, event, args, commands }) {
     const prefix = config.prefix;
 
+    // ── تفاصيل أمر واحد ────────────────────────────────────────────────────
     if (args[0]) {
-      const name = args[0].toLowerCase();
-      const cmd = commands.get(name) ||
-        [...commands.values()].find(c => c.aliases && c.aliases.includes(name));
+      const name = args[0].toLowerCase().replace(/^-+/, "");
+      const cmd  = commands.get(name) ||
+        [...new Set(commands.values())].find(c => c.aliases?.includes(name));
       if (!cmd) {
-        return api.sendMessage(`❌ Command "${name}" not found.`, event.threadID);
+        return api.sendMessage(`❌ الأمر "${name}" غير موجود.`, event.threadID);
       }
-      return api.sendMessage(
-        `📖 Command: ${prefix}${cmd.name}\n` +
-        `📝 Description: ${cmd.description}\n` +
-        `🏷️ Category: ${cmd.category || "General"}\n` +
-        `📌 Usage: ${prefix}${cmd.usage || cmd.name}\n` +
-        (cmd.aliases ? `🔁 Aliases: ${cmd.aliases.map(a => prefix + a).join(", ")}` : ""),
-        event.threadID
-      );
+      const lines = [
+        `📖 الأمر     : ${prefix}${cmd.name}`,
+        `📝 الوصف     : ${cmd.description}`,
+        `🏷️ الفئة     : ${cmd.category || "General"}`,
+        `📌 الاستخدام : ${prefix}${cmd.usage || cmd.name}`,
+      ];
+      if (cmd.aliases?.length) {
+        lines.push(`🔁 الاختصارات: ${cmd.aliases.map(a => prefix + a).join("  ")}`);
+      }
+      if (cmd.adminOnly)  lines.push(`🔒 يتطلب صلاحية مشرف`);
+      if (cmd.groupOnly)  lines.push(`👥 للمجموعات فقط`);
+      return api.sendMessage(lines.join("\n"), event.threadID);
     }
 
+    // ── قائمة كل الأوامر (بدون تكرار) ────────────────────────────────────
+    const unique     = [...new Set(commands.values())];
     const categories = {};
-    for (const cmd of commands.values()) {
+
+    for (const cmd of unique) {
       const cat = cmd.category || "General";
       if (!categories[cat]) categories[cat] = [];
-      categories[cat].push(`${prefix}${cmd.name}`);
+      categories[cat].push(cmd.name);
     }
 
-    let msg = `┌─── 🤖 ${config.bot.name} Commands ───\n`;
-    for (const [cat, cmds] of Object.entries(categories)) {
-      msg += `│\n│ 【${cat}】\n│  ${cmds.join("  ")}\n`;
+    // ترتيب الفئات
+    const ORDER = ["General", "Info", "Utility", "Group", "Fun"];
+    const sorted = [
+      ...ORDER.filter(c => categories[c]),
+      ...Object.keys(categories).filter(c => !ORDER.includes(c)),
+    ];
+
+    const ICONS = {
+      General  : "🔹",
+      Info     : "🔹",
+      Utility  : "🔧",
+      Group    : "🔸",
+      Fun      : "🎮",
+    };
+
+    let msg = `┌──── 🤖 ${config.bot.name} Commands ────\n│\n`;
+
+    for (const cat of sorted) {
+      const cmds = categories[cat].map(n => `${prefix}${n}`);
+      const icon = ICONS[cat] || "▪️";
+      msg += `│ ${icon} 【${cat}】\n`;
+      // كل أمر في سطر منفصل لسهولة القراءة
+      for (const c of cmds) {
+        msg += `│    ${c}\n`;
+      }
+      msg += `│\n`;
     }
-    msg += `│\n└─ Type ${prefix}help <command> for details.`;
+
+    msg += `└─ اكتب ${prefix}help <أمر> لتفاصيل أي أمر`;
 
     api.sendMessage(msg, event.threadID);
   },
