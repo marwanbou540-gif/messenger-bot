@@ -115,13 +115,21 @@ function formatMsg(template, vars) {
 // ─── Handle message events ────────────────────────────────────────────────────
 
 async function handleMessage(api, event, commands) {
-  const { type, body, threadID, senderID, isGroup, messageID } = event;
+  const { type, body, threadID, senderID, messageID } = event;
 
   if (type !== "message") return;
   if (!body) return;
 
   const botID = api.getCurrentUserID();
   if (senderID === botID) return;
+
+  // ── كشف المجموعة بشكل موثوق ──────────────────────────────────────────────
+  // المكتبة تحسب isGroup بطريقتين مختلفتين حسب مصدر الرسالة (MQTT/HTTP)
+  // لذلك نعتمد على عدة مؤشرات معاً لضمان الدقة في جميع المجموعات
+  const isGroup =
+    event.isGroup === true ||
+    (Array.isArray(event.participantIDs) && event.participantIDs.length > 2) ||
+    (event.isGroup !== false && threadID && senderID && threadID !== senderID);
 
   // Check mute
   if (mutedThreads.has(threadID)) {
@@ -147,7 +155,7 @@ async function handleMessage(api, event, commands) {
 
   // Group-only check
   if (cmd.groupOnly && !isGroup) {
-    return api.sendMessage("❌ This command can only be used in group chats.", threadID);
+    return api.sendMessage("❌ هذا الأمر للمجموعات فقط.", threadID);
   }
 
   // Admin-only check (bot admin OR thread admin)
@@ -155,7 +163,7 @@ async function handleMessage(api, event, commands) {
     const botAdm    = isBotAdmin(senderID);
     const threadAdm = await isThreadAdmin(api, senderID, threadID);
     if (!botAdm && !threadAdm) {
-      return api.sendMessage("🔒 This command requires admin privileges.", threadID);
+      return api.sendMessage("🔒 هذا الأمر يتطلب صلاحية مشرف.", threadID);
     }
   }
 
@@ -163,7 +171,7 @@ async function handleMessage(api, event, commands) {
   if (config.features.antiSpam) {
     if (antiSpam.isOnCooldown(senderID, cmd.name)) {
       const remaining = (antiSpam.getRemainingCooldown(senderID, cmd.name) / 1000).toFixed(1);
-      return api.sendMessage(`⏳ Please wait ${remaining}s before using this command again.`, threadID);
+      return api.sendMessage(`⏳ انتظر ${remaining} ثانية قبل استخدام هذا الأمر مجدداً.`, threadID);
     }
     antiSpam.setCooldown(senderID, cmd.name);
   }
@@ -171,9 +179,9 @@ async function handleMessage(api, event, commands) {
   logger.info("Command", `[${threadID}] ${senderID} → ${prefix}${cmd.name} ${args.join(" ")}`);
 
   try {
-    await cmd.execute({ api, event, args, commands, mutedThreads });
+    await cmd.execute({ api, event: { ...event, isGroup }, args, commands, mutedThreads });
   } catch (e) {
-    logger.error("Command", `Error in !${cmd.name}:`, e.message);
+    logger.error("Command", `Error in ${prefix}${cmd.name}:`, e.message);
     api.sendMessage(config.messages.errorOccurred, threadID).catch(() => {});
   }
 }
