@@ -275,36 +275,6 @@ async function handleEvent(api, event) {
       }
     }
 
-    if (subtype === "log:unsubscribe" && config.features.farewellMembers) {
-      try {
-        const leftID = logMessageData?.leftParticipantFbId;
-        let name = "أحد الأعضاء";
-        if (leftID) {
-          const info = await api.getUserInfo([leftID]);
-          name = info[leftID]?.name || name;
-        }
-
-        // جلب عدد الأعضاء المتبقين
-        let remaining = "?";
-        try {
-          const threadInfo = await api.getThreadInfo(threadID);
-          remaining = threadInfo.participantIDs?.length || "?";
-        } catch {}
-
-        const msg = [
-          `╔══════════════════════════╗`,
-          `║   👋  وداعاً يا ${name}`,
-          `╚══════════════════════════╝`,
-          ``,
-          `😔 غادر ${name} المجموعة.`,
-          `👥 عدد الأعضاء المتبقين: ${remaining}`,
-          ``,
-          `نتمنى له/لها التوفيق! 🌟`,
-        ].join("\n");
-
-        api.sendMessage(msg, threadID);
-      } catch {}
-    }
   }
 }
 
