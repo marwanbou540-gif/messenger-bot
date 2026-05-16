@@ -6,19 +6,37 @@ const os     = require("os");
 const path   = require("path");
 const config = require("../config.json");
 
-// Register embedded font once at module load
-const FONT_PATH = path.join(__dirname, "../assets/JetBrainsMono-Bold.ttf");
-let fontReady = false;
+// Register font once at module load
 try {
-  GlobalFonts.registerFromPath(FONT_PATH, "JBMono");
-  fontReady = true;
-} catch (e) {
-  // font file not found yet — will use fallback
-}
+  GlobalFonts.registerFromPath(
+    path.join(__dirname, "../assets/JetBrainsMono-Bold.ttf"),
+    "JBMono"
+  );
+} catch {}
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
-function roundRect(ctx, x, y, w, h, r) {
+function f(size, bold = true) {
+  return (bold ? "bold " : "") + size + "px JBMono, monospace";
+}
+
+function hline(ctx, y, x1 = 0, x2 = 720, color = "#21262d") {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+  ctx.restore();
+}
+
+function vline(ctx, x, y1, y2, color = "#21262d") {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
+  ctx.restore();
+}
+
+function rrect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -32,152 +50,157 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-const F  = (size) => `bold ${size}px ${fontReady ? "JBMono" : "serif"}`;
-const FM = (size) => `${size}px ${fontReady ? "JBMono" : "serif"}`;
-
 async function buildCard(info) {
-  const W = 800, H = 460;
+  const W = 720, H = 412;
   const canvas = createCanvas(W, H);
   const ctx    = canvas.getContext("2d");
 
-  // ── Background ────────────────────────────────────────────────────────────
-  ctx.fillStyle = "#080812";
+  // ── Canvas background ─────────────────────────────────────────────────────
+  ctx.fillStyle = "#0d1117";
   ctx.fillRect(0, 0, W, H);
 
-  // Grid lines
-  ctx.strokeStyle = "#0f0f20";
-  ctx.lineWidth   = 1;
-  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  // Outer border
+  ctx.strokeStyle = "#30363d";
+  ctx.lineWidth = 1.5;
+  rrect(ctx, 1, 1, W - 2, H - 2, 6);
+  ctx.stroke();
 
-  // Outer border gradient
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#00e5ff"); bg.addColorStop(0.5, "#7c3aed"); bg.addColorStop(1, "#00e5ff");
-  ctx.strokeStyle = bg; ctx.lineWidth = 2;
-  roundRect(ctx, 1, 1, W - 2, H - 2, 14); ctx.stroke();
+  // ── HEADER (0–58) ─────────────────────────────────────────────────────────
+  ctx.fillStyle = "#161b22";
+  ctx.fillRect(1, 1, W - 2, 57);
+  hline(ctx, 58, 1, W - 1);
 
-  // ── Header bar ───────────────────────────────────────────────────────────
-  ctx.fillStyle = "#0c0c22";
-  roundRect(ctx, 2, 2, W - 4, 56, 12); ctx.fill();
-  ctx.strokeStyle = "#1c1c38"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(2, 58); ctx.lineTo(W - 2, 58); ctx.stroke();
-
-  // Status dot
-  ctx.fillStyle = "#00ff88"; ctx.shadowColor = "#00ff88"; ctx.shadowBlur = 14;
-  ctx.beginPath(); ctx.arc(32, 30, 7, 0, Math.PI * 2); ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(0,255,136,0.25)"; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(32, 30, 13, 0, Math.PI * 2); ctx.stroke();
+  // Online dot
+  ctx.fillStyle = "#3fb950";
+  ctx.beginPath(); ctx.arc(26, 29, 6, 0, Math.PI * 2); ctx.fill();
 
   // Bot name
-  ctx.fillStyle = "#e8e8ff"; ctx.font = F(20); ctx.textAlign = "left";
-  ctx.fillText(info.botName.toUpperCase(), 58, 37);
+  ctx.fillStyle = "#c9d1d9";
+  ctx.font = f(17);
+  ctx.textAlign = "left";
+  ctx.fillText(info.botName.toUpperCase(), 44, 36);
 
-  // Version pill
-  const vText = "v" + info.version;
-  ctx.font = FM(13);
-  const vW  = ctx.measureText(vText).width + 22;
-  const vX  = W - vW - 16;
-  ctx.fillStyle = "#12122e";
-  roundRect(ctx, vX, 14, vW, 30, 7); ctx.fill();
-  ctx.strokeStyle = "#00e5ff44"; ctx.lineWidth = 1;
-  roundRect(ctx, vX, 14, vW, 30, 7); ctx.stroke();
-  ctx.fillStyle = "#00e5ff"; ctx.textAlign = "center";
-  ctx.fillText(vText, vX + vW / 2, 34);
+  // ONLINE pill
+  const pill = "ONLINE";
+  ctx.font = f(10, false);
+  const pw = ctx.measureText(pill).width + 18;
+  const px = W / 2 - pw / 2;
+  ctx.fillStyle = "#0d2313";
+  rrect(ctx, px, 17, pw, 22, 4); ctx.fill();
+  ctx.strokeStyle = "#2ea04326";
+  ctx.lineWidth = 1;
+  rrect(ctx, px, 17, pw, 22, 4); ctx.stroke();
+  ctx.fillStyle = "#3fb950";
+  ctx.textAlign = "center";
+  ctx.fillText(pill, W / 2, 32);
 
-  // ── Uptime section header ─────────────────────────────────────────────────
-  ctx.fillStyle = "#383860"; ctx.font = FM(11); ctx.textAlign = "center";
-  ctx.fillText("S Y S T E M   U P T I M E", W / 2, 82);
-  // separator lines
-  ctx.strokeStyle = "#1e1e40"; ctx.lineWidth = 1;
-  const tw = ctx.measureText("S Y S T E M   U P T I M E").width;
-  ctx.beginPath(); ctx.moveTo(W / 2 - tw / 2 - 24, 78); ctx.lineTo(W / 2 - tw / 2 - 6, 78); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(W / 2 + tw / 2 + 6, 78); ctx.lineTo(W / 2 + tw / 2 + 24, 78); ctx.stroke();
+  // Version
+  ctx.fillStyle = "#6e7681";
+  ctx.font = f(12, false);
+  ctx.textAlign = "right";
+  ctx.fillText("v" + info.version, W - 18, 35);
 
-  // ── Digit blocks ──────────────────────────────────────────────────────────
+  // ── UPTIME ROW (58–148) ───────────────────────────────────────────────────
+  ctx.fillStyle = "#080d12";
+  ctx.fillRect(1, 59, W - 2, 88);
+  hline(ctx, 147, 1, W - 1);
+
+  // "UPTIME" micro-label
+  ctx.fillStyle = "#484f58";
+  ctx.font = f(9, false);
+  ctx.textAlign = "center";
+  ctx.fillText("U P T I M E", W / 2, 76);
+
+  // 4 uptime segments
   const segs = [
     { v: pad(info.days),  l: "DAYS" },
     { v: pad(info.hours), l: "HRS"  },
     { v: pad(info.mins),  l: "MIN"  },
     { v: pad(info.secs),  l: "SEC"  },
   ];
-  const DY = 94, DH = 82, DW = 112, GAP = 44;
-  const DX0 = (W - segs.length * DW - (segs.length - 1) * GAP) / 2;
+  const segW = 104;
+  const upX0 = (W - segs.length * segW) / 2;
 
   segs.forEach((seg, i) => {
-    const cx = DX0 + i * (DW + GAP);
+    const cx = upX0 + i * segW + segW / 2;
 
-    // Box
-    ctx.fillStyle = "#09091c";
-    roundRect(ctx, cx, DY, DW, DH, 10); ctx.fill();
-    ctx.strokeStyle = "#18183a"; ctx.lineWidth = 1;
-    roundRect(ctx, cx, DY, DW, DH, 10); ctx.stroke();
+    // Number
+    ctx.fillStyle = "#58a6ff";
+    ctx.font = f(36);
+    ctx.textAlign = "center";
+    ctx.fillText(seg.v, cx, 127);
 
-    // Top accent sweep
-    const ag = ctx.createLinearGradient(cx, DY, cx + DW, DY);
-    ag.addColorStop(0, "transparent"); ag.addColorStop(0.5, "#00e5ff88"); ag.addColorStop(1, "transparent");
-    ctx.fillStyle = ag; ctx.fillRect(cx, DY, DW, 2);
-
-    // Digit glow
-    const dg = ctx.createLinearGradient(cx + DW / 2, DY, cx + DW / 2, DY + DH);
-    dg.addColorStop(0, "#00eeff"); dg.addColorStop(1, "#007799");
-    ctx.fillStyle = dg; ctx.shadowColor = "#00e5ff"; ctx.shadowBlur = 18;
-    ctx.font = F(52); ctx.textAlign = "center";
-    ctx.fillText(seg.v, cx + DW / 2, DY + 64);
-    ctx.shadowBlur = 0;
-
-    // Label
-    ctx.fillStyle = "#383860"; ctx.font = FM(9);
-    ctx.fillText(seg.l, cx + DW / 2, DY + DH + 15);
+    // Sub-label
+    ctx.fillStyle = "#484f58";
+    ctx.font = f(8, false);
+    ctx.fillText(seg.l, cx, 141);
 
     // Colon separator
     if (i < 3) {
-      const cx2 = cx + DW + GAP / 2;
-      ctx.fillStyle = "#00ccee"; ctx.shadowColor = "#00e5ff"; ctx.shadowBlur = 10;
-      ctx.font = F(32); ctx.fillText(":", cx2, DY + 52); ctx.shadowBlur = 0;
+      ctx.fillStyle = "#30363d";
+      ctx.font = f(26);
+      ctx.fillText(":", upX0 + (i + 1) * segW, 122);
     }
   });
 
-  // ── Stats row ─────────────────────────────────────────────────────────────
-  const SY    = DY + DH + 42;
-  const COLS  = ["#00e5ff", "#7c3aed", "#f59e0b", "#10b981"];
-  const stats = [
-    { label: "MEMORY",   value: info.memMB + " MB"   },
-    { label: "GROUPS",   value: String(info.groups)   },
-    { label: "COMMANDS", value: String(info.commands) },
-    { label: "PLATFORM", value: info.platform         },
+  // ── STATS GRID (147–370) — 2 cols × 4 rows ───────────────────────────────
+  const SY   = 148;
+  const ROW  = 56;
+  const HALF = W / 2;
+
+  const leftStats = [
+    { label: "RAM Usage",     value: info.memMB + " MB",    color: "#ffa657" },
+    { label: "Active Groups", value: String(info.groups),   color: "#58a6ff" },
+    { label: "Commands",      value: String(info.commands), color: "#bc8cff" },
+    { label: "Bot Prefix",    value: info.prefix,           color: "#e6edf3" },
   ];
-  const SW = 168, SH = 76, SGAP = 16;
-  const SX0 = (W - stats.length * SW - (stats.length - 1) * SGAP) / 2;
+  const rightStats = [
+    { label: "Locked Groups", value: String(info.locked),   color: info.locked > 0 ? "#f85149" : "#6e7681" },
+    { label: "Admins",        value: String(info.admins),   color: "#3fb950" },
+    { label: "Platform",      value: info.platform,         color: "#8b949e" },
+    { label: "Node.js",       value: process.version,       color: "#d29922" },
+  ];
 
-  stats.forEach((s, i) => {
-    const bx = SX0 + i * (SW + SGAP), col = COLS[i];
+  // Vertical divider
+  vline(ctx, HALF, SY, SY + ROW * 4);
 
-    ctx.fillStyle = "#080818";
-    roundRect(ctx, bx, SY, SW, SH, 9); ctx.fill();
-    ctx.strokeStyle = col + "55"; ctx.lineWidth = 1.5;
-    roundRect(ctx, bx, SY, SW, SH, 9); ctx.stroke();
+  for (let row = 0; row < 4; row++) {
+    const ry = SY + row * ROW;
+    if (row > 0) hline(ctx, ry, 1, W - 1, "#161b22");
 
-    // Top color sweep
-    const sg = ctx.createLinearGradient(bx, SY, bx + SW, SY);
-    sg.addColorStop(0, col + "cc"); sg.addColorStop(0.5, col + "33"); sg.addColorStop(1, "transparent");
-    ctx.fillStyle = sg; ctx.fillRect(bx + 1, SY + 1, SW - 2, 3);
+    // ── Left cell ──
+    const L = leftStats[row];
+    ctx.fillStyle = "#484f58";
+    ctx.font = f(9, false);
+    ctx.textAlign = "left";
+    ctx.fillText(L.label.toUpperCase(), 20, ry + 20);
 
-    // Label
-    ctx.fillStyle = "#44446a"; ctx.font = FM(9); ctx.textAlign = "center";
-    ctx.fillText(s.label, bx + SW / 2, SY + 20);
+    ctx.fillStyle = L.color;
+    ctx.font = f(20);
+    ctx.fillText(L.value, 20, ry + 44);
 
-    // Value
-    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8;
-    ctx.font = F(22);
-    ctx.fillText(s.value, bx + SW / 2, SY + 52);
-    ctx.shadowBlur = 0;
+    // ── Right cell ──
+    const R = rightStats[row];
+    ctx.fillStyle = "#484f58";
+    ctx.font = f(9, false);
+    ctx.fillText(R.label.toUpperCase(), HALF + 20, ry + 20);
+
+    ctx.fillStyle = R.color;
+    ctx.font = f(20);
+    ctx.fillText(R.value, HALF + 20, ry + 44);
+  }
+
+  // ── FOOTER (372–412) ──────────────────────────────────────────────────────
+  hline(ctx, 372, 1, W - 1, "#21262d");
+
+  ctx.fillStyle = "#3d444d";
+  ctx.font = f(10, false);
+  ctx.textAlign = "center";
+  const now = new Date().toLocaleString("en-GB", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    day: "numeric", month: "short", year: "numeric",
   });
-
-  // ── Footer ────────────────────────────────────────────────────────────────
-  ctx.fillStyle = "#252545"; ctx.font = FM(10); ctx.textAlign = "center";
-  const now = new Date().toLocaleString("en-GB", { hour:"2-digit", minute:"2-digit", second:"2-digit", day:"numeric", month:"short", year:"numeric" });
-  ctx.fillText("Node.js " + process.version + "  \u2022  " + now, W / 2, H - 14);
+  ctx.fillText(now + "  \u2022  " + info.platform + " / " + process.version, W / 2, 396);
 
   return canvas.toBuffer("image/png");
 }
@@ -185,36 +208,53 @@ async function buildCard(info) {
 module.exports = {
   name: "uptime",
   aliases: ["up"],
-  description: "\u0639\u0631\u0636 \u0645\u0639\u0644\u0648\u0645\u0627\u062a \u0627\u0644\u0628\u0648\u062a \u0643\u0635\u0648\u0631\u0629 \u0631\u0642\u0645\u064a\u0629.",
+  description: "\u0639\u0631\u0636 \u062a\u0641\u0627\u0635\u064a\u0644 \u0627\u0644\u0628\u0648\u062a \u0643\u0635\u0648\u0631\u0629.",
   usage: "uptime",
   category: "General",
 
   async execute({ api, event, commands }) {
-    const total = Math.floor(process.uptime());
-    const days  = Math.floor(total / 86400);
-    const hours = Math.floor((total % 86400) / 3600);
-    const mins  = Math.floor((total % 3600) / 60);
-    const secs  = total % 60;
-    const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+    const total  = Math.floor(process.uptime());
+    const days   = Math.floor(total / 86400);
+    const hours  = Math.floor((total % 86400) / 3600);
+    const mins   = Math.floor((total % 3600) / 60);
+    const secs   = total % 60;
+    const memMB  = Math.round(process.memoryUsage().rss / 1024 / 1024);
 
-    let groups = 0;
-    try { const { groupsCache } = require("../state"); groups = groupsCache.size; } catch {}
+    let groups = 0, locked = 0;
+    try {
+      const state = require("../state");
+      groups = state.groupsCache.size;
+      locked = state.lockedThreads.size;
+    } catch {}
+
     const cmdCount = commands ? [...new Set(commands.values())].length : 0;
+    const admins   = Array.isArray(config.bot.adminIDs) ? config.bot.adminIDs.length : 0;
 
     const info = {
-      botName: config.bot.name, version: config.bot.version,
-      days, hours, mins, secs, memMB, groups,
-      commands: cmdCount, platform: os.platform(),
+      botName:  config.bot.name,
+      version:  config.bot.version,
+      prefix:   config.prefix,
+      days, hours, mins, secs,
+      memMB, groups, locked,
+      commands: cmdCount,
+      admins,
+      platform: os.platform(),
     };
 
     const tmpFile = path.join(os.tmpdir(), "uptime_" + Date.now() + ".png");
     try {
       const buf = await buildCard(info);
       fs.writeFileSync(tmpFile, buf);
-      await api.sendMessage({ body: "", attachment: fs.createReadStream(tmpFile) }, event.threadID);
+      await api.sendMessage(
+        { body: "", attachment: fs.createReadStream(tmpFile) },
+        event.threadID
+      );
     } catch (err) {
+      // Text fallback
       api.sendMessage(
-        "\u23f1\ufe0f Uptime: " + days + "d " + hours + "h " + mins + "m " + secs + "s\n\ud83d\udcbe RAM: " + memMB + " MB",
+        info.botName + " v" + info.version + "\n" +
+        "Uptime: " + days + "d " + hours + "h " + mins + "m " + secs + "s\n" +
+        "RAM: " + memMB + " MB  |  Groups: " + groups + "  |  Commands: " + cmdCount,
         event.threadID
       );
     } finally {
