@@ -27,8 +27,8 @@ function parseInterval(amount, unit) {
 
 function formatMs(ms) {
   const s = Math.floor(ms / 1000);
-  if (s < 60)   return `${s} ثانية`;
-  if (s < 3600) return `${Math.floor(s / 60)} دقيقة`;
+  if (s < 60)    return `${s} ثانية`;
+  if (s < 3600)  return `${Math.floor(s / 60)} دقيقة`;
   if (s < 86400) return `${Math.floor(s / 3600)} ساعة`;
   return `${Math.floor(s / 86400)} يوم`;
 }
@@ -49,14 +49,14 @@ function startTimer(entry, api) {
 }
 
 module.exports = {
-  name: "schedule",
-  aliases: ["sch", "auto", "timer"],
-  description: "جدولة رسائل تلقائية تُرسَل كل فترة زمنية محددة. (مشرف فقط)",
+  name: "autoreply",
+  aliases: ["sch", "auto", "timer", "schedule"],
+  description: "جدولة ردود تلقائية تُرسَل كل فترة زمنية محددة. (مشرف فقط)",
   usage: [
-    "-schedule add <مقدار> <وحدة> <الرسالة>",
-    "-schedule list",
-    "-schedule stop <ID>",
-    "-schedule stopall",
+    "-autoreply add <مقدار> <وحدة> <الرسالة>",
+    "-autoreply list",
+    "-autoreply stop <ID>",
+    "-autoreply stopall",
     "",
     "وحدات الوقت:",
     "  s / ث      = ثواني",
@@ -65,8 +65,8 @@ module.exports = {
     "  d / ي      = أيام",
     "",
     "مثال:",
-    "  -schedule add 30 m صباح الخير للجميع 🌅",
-    "  -schedule add 2 h تذكير: التزموا بقوانين المجموعة",
+    "  -autoreply add 30 m صباح الخير للجميع 🌅",
+    "  -autoreply add 2 h تذكير: التزموا بقوانين المجموعة",
   ].join("\n"),
   category: "Group",
   groupOnly: true,
@@ -86,7 +86,7 @@ module.exports = {
 
       if (!amount || !unit || !message) {
         return api.sendMessage(
-          `❌ استخدام:\n${prefix}schedule add <مقدار> <وحدة> <الرسالة>\n\nمثال:\n${prefix}schedule add 30 m صباح الخير 🌅`,
+          `❌ استخدام:\n${prefix}autoreply add <مقدار> <وحدة> <الرسالة>\n\nمثال:\n${prefix}autoreply add 30 m صباح الخير 🌅`,
           threadID
         );
       }
@@ -99,7 +99,6 @@ module.exports = {
         );
       }
 
-      // الحد الأدنى 30 ثانية
       if (intervalMs < 30000) {
         return api.sendMessage("❌ الحد الأدنى للجدولة هو 30 ثانية.", threadID);
       }
@@ -121,13 +120,13 @@ module.exports = {
 
       return api.sendMessage(
         [
-          `✅ تم إنشاء الجدولة رقم #${id}`,
+          `✅ تم إنشاء الرد التلقائي رقم #${id}`,
           ``,
           `⏱️ التكرار  : كل ${formatMs(intervalMs)}`,
           `📩 الرسالة  : ${message}`,
           `🕐 الإرسال القادم: ${formatDate(entry.nextAt)}`,
           ``,
-          `لإيقافها: ${prefix}schedule stop ${id}`,
+          `لإيقافه: ${prefix}autoreply stop ${id}`,
         ].join("\n"),
         threadID
       );
@@ -139,12 +138,12 @@ module.exports = {
 
       if (threadSchedules.length === 0) {
         return api.sendMessage(
-          `📭 لا توجد جدولات نشطة في هذه المجموعة.\nأضف واحدة: ${prefix}schedule add <مقدار> <وحدة> <الرسالة>`,
+          `📭 لا توجد ردود تلقائية نشطة في هذه المجموعة.\nأضف واحدة: ${prefix}autoreply add <مقدار> <وحدة> <الرسالة>`,
           threadID
         );
       }
 
-      let msg = `┌──── ⏰ الجدولات النشطة (${threadSchedules.length}) ────\n│\n`;
+      let msg = `┌──── 🔁 الردود التلقائية النشطة (${threadSchedules.length}) ────\n│\n`;
       for (const s of threadSchedules) {
         msg += `│ 🆔 #${s.id}\n`;
         msg += `│ ⏱️  كل ${formatMs(s.intervalMs)}\n`;
@@ -152,7 +151,7 @@ module.exports = {
         msg += `│ 📩  ${s.message.length > 40 ? s.message.slice(0, 40) + "..." : s.message}\n`;
         msg += `│\n`;
       }
-      msg += `└─ لإيقاف جدولة: ${prefix}schedule stop <ID>`;
+      msg += `└─ لإيقاف رد تلقائي: ${prefix}autoreply stop <ID>`;
 
       return api.sendMessage(msg, threadID);
     }
@@ -161,21 +160,21 @@ module.exports = {
     if (sub === "stop") {
       const id = parseInt(args[1]);
       if (isNaN(id)) {
-        return api.sendMessage(`❌ أدخل رقم ID صحيح.\nمثال: ${prefix}schedule stop 1`, threadID);
+        return api.sendMessage(`❌ أدخل رقم ID صحيح.\nمثال: ${prefix}autoreply stop 1`, threadID);
       }
 
       const entry = schedules.get(id);
       if (!entry) {
-        return api.sendMessage(`❌ لا توجد جدولة برقم #${id}.`, threadID);
+        return api.sendMessage(`❌ لا يوجد رد تلقائي برقم #${id}.`, threadID);
       }
       if (entry.threadID !== threadID) {
-        return api.sendMessage(`❌ هذه الجدولة تعود لمجموعة أخرى.`, threadID);
+        return api.sendMessage(`❌ هذا الرد التلقائي يعود لمجموعة أخرى.`, threadID);
       }
 
       clearInterval(entry.timer);
       schedules.delete(id);
       return api.sendMessage(
-        `✅ تم إيقاف الجدولة #${id}.\n📩 كانت الرسالة: ${entry.message}`,
+        `✅ تم إيقاف الرد التلقائي #${id}.\n📩 كانت الرسالة: ${entry.message}`,
         threadID
       );
     }
@@ -184,18 +183,18 @@ module.exports = {
     if (sub === "stopall") {
       const toDelete = [...schedules.entries()].filter(([, s]) => s.threadID === threadID);
       if (toDelete.length === 0) {
-        return api.sendMessage("📭 لا توجد جدولات نشطة في هذه المجموعة.", threadID);
+        return api.sendMessage("📭 لا توجد ردود تلقائية نشطة في هذه المجموعة.", threadID);
       }
       for (const [id, entry] of toDelete) {
         clearInterval(entry.timer);
         schedules.delete(id);
       }
-      return api.sendMessage(`✅ تم إيقاف جميع الجدولات (${toDelete.length}) في هذه المجموعة.`, threadID);
+      return api.sendMessage(`✅ تم إيقاف جميع الردود التلقائية (${toDelete.length}) في هذه المجموعة.`, threadID);
     }
 
     // ── usage ─────────────────────────────────────────────────────────────────
     return api.sendMessage(
-      `📖 استخدام أمر الجدولة:\n\n${this.usage}`,
+      `📖 استخدام أمر الرد التلقائي:\n\n${this.usage}`,
       threadID
     );
   },
