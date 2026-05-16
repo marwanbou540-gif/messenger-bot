@@ -186,75 +186,6 @@ async function handleMessage(api, event, commands) {
   }
 }
 
-// ─── Build welcome message ────────────────────────────────────────────────────
-
-async function buildWelcomeMessage(api, name, threadID) {
-  const prefix = config.prefix;
-  const p      = prefix;
-
-  // جلب معلومات المجموعة
-  let groupName    = "المجموعة";
-  let memberCount  = "?";
-  try {
-    const info  = await api.getThreadInfo(threadID);
-    groupName   = info.name || "المجموعة";
-    memberCount = info.participantIDs?.length || "?";
-  } catch {}
-
-  return [
-    `╔═══════════════════════════╗`,
-    `║   👋  مرحباً بك يا ${name}`,
-    `╚═══════════════════════════╝`,
-    ``,
-    `📌 المجموعة : ${groupName}`,
-    `👥 الأعضاء  : ${memberCount} عضو`,
-    `🤖 البوت    : ${config.bot.name} v${config.bot.version}`,
-    ``,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `📋  قائمة الأوامر الرئيسية`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    ``,
-    `  🔹 عامة`,
-    `    ${p}help     ┄ جميع الأوامر`,
-    `    ${p}ping     ┄ اختبار الاستجابة`,
-    `    ${p}info     ┄ معلومات البوت`,
-    `    ${p}uptime   ┄ مدة تشغيل البوت`,
-    ``,
-    `  🔹 معلومات`,
-    `    ${p}server   ┄ معلومات السيرفر`,
-    `    ${p}health   ┄ حالة الاتصال`,
-    `    ${p}time     ┄ الوقت الحالي`,
-    `    ${p}id       ┄ عرض الـ ID`,
-    ``,
-    `  🔸 إدارة المجموعة (مشرف)`,
-    `    ${p}members  ┄ قائمة الأعضاء`,
-    `    ${p}kick     ┄ طرد عضو`,
-    `    ${p}add      ┄ إضافة عضو`,
-    `    ${p}admin    ┄ ترقية / إنزال`,
-    `    ${p}rename   ┄ تغيير اسم المجموعة`,
-    `    ${p}announce ┄ إرسال إعلان`,
-    `    ${p}poll     ┄ إنشاء تصويت`,
-    `    ${p}mute     ┄ كتم البوت`,
-    ``,
-    `  🔸 الكنيات (مشرف)`,
-    `    ${p}nickname ┄ كنية عضو واحد`,
-    `    ${p}nickall  ┄ كنية الجميع دفعة`,
-    ``,
-    `  🎨 تخصيص (مشرف)`,
-    `    ${p}theme    ┄ تغيير التيمة`,
-    `    ${p}emoji    ┄ تغيير الإيموجي`,
-    ``,
-    `  🎮 ترفيه`,
-    `    ${p}coinflip ┄ رمي عملة`,
-    `    ${p}roll     ┄ رمي نرد`,
-    `    ${p}react    ┄ ريأكشن`,
-    ``,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `💡 اكتب ${p}help <أمر> لتفاصيل أي أمر`,
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-  ].join("\n");
-}
-
 // ─── Handle thread events (join/leave/rename) ─────────────────────────────────
 
 const { lockedNames } = require("./utils/lockedNames");
@@ -264,19 +195,6 @@ async function handleEvent(api, event) {
 
   if (type === "event") {
     const subtype = event.logMessageType;
-
-    // ── استقبال أعضاء جدد ──────────────────────────────────────────────────
-    if (subtype === "log:subscribe" && config.features.greetNewMembers) {
-      const ids = logMessageData?.addedParticipants?.map(p => p.userFbId) || [];
-      for (const id of ids) {
-        try {
-          const info = await api.getUserInfo([id]);
-          const name = info[id]?.name || "عضو جديد";
-          const msg  = await buildWelcomeMessage(api, name, threadID);
-          api.sendMessage(msg, threadID);
-        } catch {}
-      }
-    }
 
     // ── قفل اسم المجموعة ───────────────────────────────────────────────────
     if (subtype === "log:thread-name") {
