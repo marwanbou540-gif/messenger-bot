@@ -107,6 +107,9 @@ async function isThreadAdmin(api, senderID, threadID) {
 // ─── Muted threads map ────────────────────────────────────────────────────────
 const mutedThreads = new Map();
 
+// ─── Locked threads set ───────────────────────────────────────────────────────
+const lockedThreads = new Set();
+
 // ─── Format template strings ──────────────────────────────────────────────────
 function formatMsg(template, vars) {
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
@@ -136,6 +139,13 @@ async function handleMessage(api, event, commands) {
     const until = mutedThreads.get(threadID);
     if (Date.now() < until) return;
     mutedThreads.delete(threadID);
+  }
+
+  // Check lock — if active, only bot admins and thread admins can use commands
+  if (lockedThreads.has(threadID)) {
+    const botAdm    = isBotAdmin(senderID);
+    const threadAdm = await isThreadAdmin(api, senderID, threadID);
+    if (!botAdm && !threadAdm) return;
   }
 
   const prefix = config.prefix;
@@ -179,7 +189,7 @@ async function handleMessage(api, event, commands) {
   logger.info("Command", `[${threadID}] ${senderID} → ${prefix}${cmd.name} ${args.join(" ")}`);
 
   try {
-    await cmd.execute({ api, event: { ...event, isGroup }, args, commands, mutedThreads });
+    await cmd.execute({ api, event: { ...event, isGroup }, args, commands, mutedThreads, lockedThreads });
   } catch (e) {
     logger.error("Command", `Error in ${prefix}${cmd.name}:`, e.message);
     api.sendMessage(config.messages.errorOccurred, threadID).catch(() => {});
