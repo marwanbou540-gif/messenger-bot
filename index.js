@@ -96,19 +96,26 @@ function isBotAdmin(senderID) {
 
 async function isThreadAdmin(api, senderID, threadID) {
   try {
-    const info = await api.getThreadInfo(threadID);
+    const info    = await api.getThreadInfo(threadID);
     const adminIDs = (info.adminIDs || []).map(a => a.id);
+    // Keep group name/count fresh
+    if (info.name && groupsCache.has(threadID)) {
+      const cached = groupsCache.get(threadID);
+      groupsCache.set(threadID, {
+        ...cached,
+        name:        info.name,
+        memberCount: info.participantIDs ? info.participantIDs.length : cached.memberCount,
+      });
+    }
     return adminIDs.includes(senderID);
   } catch {
     return false;
   }
 }
 
-// ─── Muted threads map ────────────────────────────────────────────────────────
-const mutedThreads = new Map();
-
-// ─── Locked threads set ───────────────────────────────────────────────────────
-const lockedThreads = new Set();
+// ─── Shared state & dashboard API ────────────────────────────────────────────
+const { lockedThreads, mutedThreads, groupsCache } = require("./state");
+const { setBotApi, logActivity, startApiServer }   = require("./api");
 
 // ─── Format template strings ──────────────────────────────────────────────────
 function formatMsg(template, vars) {
@@ -133,6 +140,16 @@ async function handleMessage(api, event, commands) {
     event.isGroup === true ||
     (Array.isArray(event.participantIDs) && event.participantIDs.length > 2) ||
     (event.isGroup !== false && threadID && senderID && threadID !== senderID);
+
+  // Update groups cache on every message
+  if (isGroup) {
+    const cached = groupsCache.get(threadID) || {};
+    groupsCache.set(threadID, {
+      name:        cached.name || null,
+      memberCount: event.participantIDs ? event.participantIDs.length : (cached.memberCount || 0),
+      lastSeen:    Date.now(),
+    });
+  }
 
   // Check mute
   if (mutedThreads.has(threadID)) {
@@ -276,6 +293,10 @@ function startBot() {
 
     // Auto-save appstate periodically
     startAppStateSaver(api);
+
+    // Start dashboard HTTP API
+    setBotApi(api);
+    startApiServer();
 
     // React on successful re-login
     api.onReLoginSuccess = () => {
