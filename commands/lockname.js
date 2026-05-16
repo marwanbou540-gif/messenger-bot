@@ -1,50 +1,68 @@
-"use strict";
+const fs = require("fs-extra");
+const path = require("path");
+const statePath = path.join(__dirname, "data/malakState.json");
 
-const config = require("../config.json");
-const { lockedNames } = require("../utils/lockedNames");
+function getState() {
+  try { return JSON.parse(fs.readFileSync(statePath, "utf-8")); }
+  catch { return { locks: {}, botAdmins: {}, awrwa: {} }; }
+}
+function saveState(s) {
+  fs.writeFileSync(statePath, JSON.stringify(s, null, 2));
+}
 
-module.exports = {
-  name: "lockname",
-  aliases: ["namelock", "قفل-اسم"],
-  description: "قفل اسم المجموعة ومنع تغييره.",
-  usage: "lockname [on|off|status]",
-  category: "Group",
-  groupOnly: true,
-  adminOnly: true,
+if (!global.awrwaIntervals) global.awrwaIntervals = {};
 
-  async execute({ api, event, args }) {
-    const { threadID } = event;
-    const sub = (args[0] || "").toLowerCase();
+module.exports.config = {
+  name: "اوروا",
+  version: "1.0.0",
+  hasPermssion: 1,
+  credits: "كاڪو",
+  description: "يغير اسم الكروب ويمنع تغييره",
+  commandCategory: "الملاك",
+  usages: "اوروا [اسم] | اوروا وقف",
+  cooldowns: 3
+};
 
-    if (sub === "off" || sub === "إيقاف") {
-      if (!lockedNames.has(threadID)) {
-        return api.sendMessage("🔓 اسم المجموعة غير مقفل أصلاً.", threadID);
-      }
-      lockedNames.delete(threadID);
-      return api.sendMessage("🔓 تم إلغاء قفل اسم المجموعة.", threadID);
+module.exports.run = async function ({ api, event, args }) {
+  const { threadID } = event;
+  const sub = args[0];
+
+  if (sub === "وقف") {
+    if (global.awrwaIntervals[threadID]) {
+      clearInterval(global.awrwaIntervals[threadID]);
+      delete global.awrwaIntervals[threadID];
     }
+    const state = getState();
+    delete state.awrwa[threadID];
+    saveState(state);
+    return api.sendMessage("تم إيقاف حماية الاسم ✅", threadID);
+  }
 
-    if (sub === "status" || sub === "حالة") {
-      if (lockedNames.has(threadID)) {
-        return api.sendMessage(`🔒 الاسم المقفل: «${lockedNames.get(threadID)}»`, threadID);
-      }
-      return api.sendMessage("🔓 لا يوجد قفل على اسم المجموعة حالياً.", threadID);
-    }
+  const newName = args.join(" ").trim();
+  if (!newName) return api.sendMessage("يرجى كتابة اسم الكروب الجديد!", threadID);
 
-    // on أو بدون مُعامِل → نجلب اسم المجموعة الحالي ونقفله
-    try {
-      const info = await api.getThreadInfo(threadID);
-      const name = info.threadName || info.name;
-      if (!name) {
-        return api.sendMessage("❌ تعذّر جلب اسم المجموعة الحالي.", threadID);
-      }
-      lockedNames.set(threadID, name);
-      return api.sendMessage(
-        `🔒 تم قفل اسم المجموعة على:\n«${name}»\n\nأي تغيير سيُعاد تلقائياً.`,
-        threadID
-      );
-    } catch (e) {
-      return api.sendMessage(`❌ خطأ: ${e.message}`, threadID);
-    }
-  },
+  try {
+    await api.setTitle(newName, threadID);
+    const state = getState();
+    state.awrwa[threadID] = newName;
+    saveState(state);
+
+    await api.sendMessage(`✅ تم تغيير اسم الكروب إلى: ${newName}\n🔒 الاسم محمي من التغيير`, threadID);
+
+    if (global.awrwaIntervals[threadID]) clearInterval(global.awrwaIntervals[threadID]);
+
+    global.awrwaIntervals[threadID] = setInterval(async () => {
+      try {
+        const info = await api.getThreadInfo(threadID);
+        const st = getState();
+        const protectedName = st.awrwa[threadID];
+        if (protectedName && info.threadName !== protectedName) {
+          await api.setTitle(protectedName, threadID);
+        }
+      } catch (e) {}
+    }, 5000);
+
+  } catch (e) {
+    return api.sendMessage("❌ فشل في تغيير اسم الكروب: " + e.message, threadID);
+  }
 };
