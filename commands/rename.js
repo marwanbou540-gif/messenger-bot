@@ -19,8 +19,8 @@ if (!global.awrwaIntervals) global.awrwaIntervals = {};
 module.exports = {
   name: "rename",
   aliases: ["setname", "groupname"],
-  description: "Rename the group chat. (Admin only) | Use --lock flag to prevent others from changing the name",
-  usage: "rename <new name> [--lock]",
+  description: "تغيير اسم المجموعة (مشرف فقط) | استخدم --lock لمنع الآخرين من تغيير الاسم",
+  usage: "rename <اسم جديد> [--lock]",
   category: "Group",
   groupOnly: true,
   adminOnly: true,
@@ -38,7 +38,7 @@ module.exports = {
     const newName = args.join(" ").trim();
     if (!newName) {
       return api.sendMessage(
-        `❌ Provide a new name.\nUsage: ${config.prefix}rename <new name> [--lock]\n\nExample: ${config.prefix}rename My Group\n${config.prefix}rename My Group --lock (locks the name)`,
+        `❌ يرجى إدخال اسم جديد.\nالاستخدام: ${config.prefix}rename <اسم جديد> [--lock]\n\nمثال: ${config.prefix}rename مجموعتي\n${config.prefix}rename مجموعتي --lock (لق��ل الاسم)`,
         threadID
       );
     }
@@ -71,14 +71,14 @@ module.exports = {
         }, 5000);
 
         api.sendMessage(
-          `✅ Group renamed to: ${newName}\n🔒 Name is now LOCKED - Only admins can change it!`,
+          `✅ تم تغيير اسم المجموعة إلى: ${newName}\n🔒 الاسم مقفل الآن - فقط المشرفين يمكنهم تغييره!`,
           threadID
         );
       } else {
-        api.sendMessage(`✅ Group renamed to: ${newName}`, threadID);
+        api.sendMessage(`✅ تم تغيير اسم المجموعة إلى: ${newName}`, threadID);
       }
     } catch (e) {
-      api.sendMessage(`❌ Error: ${e.message}`, threadID);
+      api.sendMessage(`❌ خطأ: ${e.message}`, threadID);
     }
   },
 };
