@@ -114,7 +114,7 @@ async function isThreadAdmin(api, senderID, threadID) {
 }
 
 // ─── Shared state & dashboard API ────────────────────────────────────────────
-const { lockedThreads, mutedThreads, groupsCache } = require("./state");
+const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats } = require("./state");
 const { setBotApi, logActivity, logViolation, startApiServer } = require("./api");
 
 // ─── Format template strings ──────────────────────────────────────────────────
@@ -149,6 +149,23 @@ async function handleMessage(api, event, commands) {
       memberCount: event.participantIDs ? event.participantIDs.length : (cached.memberCount || 0),
       lastSeen:    Date.now(),
     });
+
+    // Track message stats
+    const stats = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
+    stats.messageCount++;
+    stats.lastMessageAt = Date.now();
+    groupStats.set(threadID, stats);
+
+    // Auto-reply (skip if it's a command)
+    const ar = autoReplies.get(threadID);
+    if (ar && ar.enabled && ar.message && !body.startsWith(config.prefix)) {
+      const now      = Date.now();
+      const lastSent = ar.lastSent.get(senderID) || 0;
+      if (now - lastSent >= ar.cooldownMs) {
+        ar.lastSent.set(senderID, now);
+        api.sendMessage(ar.message, threadID).catch(() => {});
+      }
+    }
   }
 
   // Check mute
@@ -213,6 +230,12 @@ async function handleMessage(api, event, commands) {
   }
 
   logger.info("Command", `[${threadID}] ${senderID} → ${prefix}${cmd.name} ${args.join(" ")}`);
+  // Track command stats
+  if (isGroup) {
+    const cs = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
+    cs.commandCount++;
+    groupStats.set(threadID, cs);
+  }
 
   try {
     await cmd.execute({ api, event: { ...event, isGroup }, args, commands, mutedThreads, lockedThreads });
