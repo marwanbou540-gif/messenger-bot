@@ -115,7 +115,7 @@ async function isThreadAdmin(api, senderID, threadID) {
 
 // ─── Shared state & dashboard API ────────────────────────────────────────────
 const { lockedThreads, mutedThreads, groupsCache } = require("./state");
-const { setBotApi, logActivity, startApiServer }   = require("./api");
+const { setBotApi, logActivity, logViolation, startApiServer } = require("./api");
 
 // ─── Format template strings ──────────────────────────────────────────────────
 function formatMsg(template, vars) {
@@ -162,7 +162,16 @@ async function handleMessage(api, event, commands) {
   if (lockedThreads.has(threadID)) {
     const botAdm    = isBotAdmin(senderID);
     const threadAdm = await isThreadAdmin(api, senderID, threadID);
-    if (!botAdm && !threadAdm) return;
+    if (!botAdm && !threadAdm) {
+      const cached = groupsCache.get(threadID);
+      logViolation({
+        threadID,
+        threadName:     (cached && cached.name) || threadID,
+        senderID,
+        messagePreview: body.slice(0, 80),
+      });
+      return;
+    }
   }
 
   const prefix = config.prefix;
