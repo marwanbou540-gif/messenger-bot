@@ -84,7 +84,8 @@ async function showPanel(api, threadID) {
     "  -control ar wait [دق]      ← وقت الانتظار",
     "  -control ar show           ← عرض إعدادات الرد",
   ];
-  return api.sendMessage(lines.join("\n"), threadID);
+  return api.sendMessage(lines.join("
+"), threadID);
 }
 
 // ── execute ───────────────────────────────────────────────────────────────────
@@ -139,7 +140,8 @@ module.exports = {
 
       if (!finalName) {
         return api.sendMessage(
-          "❌ لم أتمكن من تحديد الاسم.\nالاستخدام: -control lockname [الاسم]",
+          "❌ لم أتمكن من تحديد الاسم.
+الاستخدام: -control lockname [الاسم]",
           threadID
         );
       }
@@ -147,7 +149,7 @@ module.exports = {
       // Set the name first (in case a different name was provided)
       if (nameToLock) {
         try {
-          await api.setTitle(finalName, threadID);
+          await api.gcname(finalName, threadID);
         } catch {}
       }
 
@@ -156,7 +158,10 @@ module.exports = {
       groupsCache.set(threadID, { ...c, name: finalName });
 
       return api.sendMessage(
-        "🏷️ تم قفل اسم المجموعة على:\n«" + finalName + "»\n\n" +
+        "🏷️ تم قفل اسم المجموعة على:
+«" + finalName + "»
+
+" +
         "أي محاولة لتغيير الاسم ستُتجاهل وسيُعاد الاسم الأصلي تلقائياً.",
         threadID
       );
@@ -170,7 +175,8 @@ module.exports = {
       }
       lockedNames.delete(threadID);
       return api.sendMessage(
-        "🔓 تم رفع قفل الاسم.\nيمكن الآن تغيير اسم المجموعة بحرية.",
+        "🔓 تم رفع قفل الاسم.
+يمكن الآن تغيير اسم المجموعة بحرية.",
         threadID
       );
     }
@@ -196,19 +202,22 @@ module.exports = {
       // Block rename if name is locked (must unlockname first)
       if (lockedNames.has(threadID)) {
         return api.sendMessage(
-          "⛔ الاسم مقفل حالياً على «" + lockedNames.get(threadID) + "».\n" +
+          "⛔ الاسم مقفل حالياً على «" + lockedNames.get(threadID) + "».
+" +
           "استخدم -control unlockname أولاً لرفع القفل.",
           threadID
         );
       }
 
       try {
-        await api.setTitle(newName, threadID);
+        await api.gcname(newName, threadID);
         const c = groupsCache.get(threadID) || {};
         groupsCache.set(threadID, { ...c, name: newName });
-        return api.sendMessage("✏️ تم تغيير اسم المجموعة إلى:\n" + newName, threadID);
+        return api.sendMessage("✏️ تم تغيير اسم المجموعة إلى:
+" + newName, threadID);
       } catch (e) {
-        return api.sendMessage("❌ فشل تغيير الاسم. تأكد أن البوت مشرف.\n(" + e.message + ")", threadID);
+        return api.sendMessage("❌ فشل تغيير الاسم. تأكد أن البوت مشرف.
+(" + e.message + ")", threadID);
       }
     }
 
@@ -223,9 +232,12 @@ module.exports = {
           const n = uInfos[id] ? uInfos[id].name : id;
           return (i + 1) + ". " + n + (adminSet.has(id) ? " 👑" : "");
         });
-        return api.sendMessage("👥 الأعضاء (" + ids.length + "):\n" + lines.join("\n"), threadID);
+        return api.sendMessage("👥 الأعضاء (" + ids.length + "):
+" + lines.join("
+"), threadID);
       } catch (e) {
-        return api.sendMessage("❌ تعذّر جلب قائمة الأعضاء.\n" + e.message, threadID);
+        return api.sendMessage("❌ تعذّر جلب قائمة الأعضاء.
+" + e.message, threadID);
       }
     }
 
@@ -239,7 +251,8 @@ module.exports = {
          "📨 إجمالي الرسائل : " + st.messageCount,
          "⚡ الأوامر المُنفَّذة: " + st.commandCount,
          "🕒 آخر رسالة       : " + last,
-        ].join("\n"),
+        ].join("
+"),
         threadID
       );
     }
@@ -252,7 +265,8 @@ module.exports = {
         await api.gcmember("remove", String(target), threadID);
         return api.sendMessage("🚫 تم طرد المستخدم بنجاح.", threadID);
       } catch (e) {
-        return api.sendMessage("❌ فشل الطرد. تأكد أن البوت مشرف.\n" + e.message, threadID);
+        return api.sendMessage("❌ فشل الطرد. تأكد أن البوت مشرف.
+" + e.message, threadID);
       }
     }
 
@@ -264,7 +278,8 @@ module.exports = {
         const ar = autoReplies.get(threadID);
         if (!ar || !ar.message) {
           return api.sendMessage(
-            "🤖 لا يوجد رد تلقائي مُعيَّن.\nلإضافة واحد: -control ar set [الرسالة]",
+            "🤖 لا يوجد رد تلقائي مُعيَّن.
+لإضافة واحد: -control ar set [الرسالة]",
             threadID
           );
         }
@@ -274,7 +289,8 @@ module.exports = {
            "الحالة  : " + (ar.enabled ? "مفعّل ✅" : "معطّل ❌"),
            "الرسالة : " + ar.message,
            "الانتظار: " + Math.round(ar.cooldownMs / 60000) + " دقيقة لكل مستخدم",
-          ].join("\n"),
+          ].join("
+"),
           threadID
         );
       }
@@ -284,7 +300,8 @@ module.exports = {
         if (!msg) return api.sendMessage("❌ الاستخدام: -control ar set [الرسالة]", threadID);
         const ex = autoReplies.get(threadID) || { lastSent: new Map(), cooldownMs: 30 * 60000 };
         autoReplies.set(threadID, { ...ex, message: msg, enabled: true });
-        return api.sendMessage("🤖 تم تفعيل الرد التلقائي:\n" + msg, threadID);
+        return api.sendMessage("🤖 تم تفعيل الرد التلقائي:
+" + msg, threadID);
       }
 
       if (action === "off" || action === "disable") {
@@ -317,7 +334,8 @@ module.exports = {
          "  -control ar set [رسالة]← تفعيل رد جديد",
          "  -control ar on / off   ← تشغيل/إيقاف",
          "  -control ar wait [دق]  ← وقت الانتظار",
-        ].join("\n"),
+        ].join("
+"),
         threadID
       );
     }
