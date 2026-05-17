@@ -144,7 +144,7 @@ async function isThreadAdmin(api, senderID, threadID) {
   }
 }
 
-const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats } = require("./state");
+const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats, replyDelay } = require("./state");
 const { setBotApi, setBotStatus, logActivity, logViolation, startApiServer } = require("./api");
 
 function formatMsg(template, vars) {
@@ -256,6 +256,10 @@ async function handleMessage(api, event, commands) {
     const cs = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
     cs.commandCount++;
     groupStats.set(threadID, cs);
+  }
+
+  if (replyDelay.enabled && replyDelay.ms > 0) {
+    await new Promise(r => setTimeout(r, replyDelay.ms));
   }
 
   try {
