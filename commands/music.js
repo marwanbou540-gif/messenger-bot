@@ -1,71 +1,22 @@
 "use strict";
 
-const https = require("https");
-const http  = require("http");
-const fs    = require("fs");
-const os    = require("os");
-const path  = require("path");
+const fs   = require("fs");
+const os   = require("os");
+const path = require("path");
 
-// ── iTunes Search API (free, no key) ─────────────────────────────────────────
-
-function itunesSearch(query) {
-  return new Promise((resolve, reject) => {
-    const q   = encodeURIComponent(query);
-    const url = "https://itunes.apple.com/search?term=" + q +
-                "&media=music&entity=song&limit=10&lang=en_us";
-    const req = https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
-      let data = "";
-      res.on("data", c => data += c);
-      res.on("end", () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { reject(new Error("Parse error: " + e.message)); }
-      });
-    });
-    req.on("error", reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error("Timeout")); });
-  });
+let ytSearch, ytdl;
+try {
+  ytSearch = require("yt-search");
+  ytdl     = require("@distube/ytdl-core");
+} catch {
+  // Dependencies not installed yet — handled gracefully in execute()
 }
-
-// ── Download a URL to a temp file (follows redirects) ────────────────────────
-
-function download(url, dest) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    function get(u, redirects) {
-      if (redirects > 5) { file.close(); return reject(new Error("Too many redirects")); }
-      const proto = u.startsWith("https") ? https : http;
-      proto.get(u, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
-        if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) {
-          return get(res.headers.location, redirects + 1);
-        }
-        if (res.statusCode !== 200) {
-          file.close();
-          return reject(new Error("HTTP " + res.statusCode));
-        }
-        res.pipe(file);
-        file.on("finish", () => { file.close(); resolve(dest); });
-        file.on("error",  reject);
-      }).on("error", e => { file.close(); reject(e); });
-    }
-    get(url, 0);
-  });
-}
-
-// ── Format duration ms → m:ss ─────────────────────────────────────────────────
-
-function fmtDuration(ms) {
-  if (!ms) return "?:??";
-  const s = Math.floor(ms / 1000);
-  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
-}
-
-// ── Main command ──────────────────────────────────────────────────────────────
 
 module.exports = {
   name: "music",
-  aliases: ["song", "اغنية", "أغنية", "mp3"],
-  description: "البحث عن أغنية وإرسالها كرسالة صوتية.",
-  usage: "music [اسم الأغنية أو الفنان]",
+  aliases: ["song", "\u0627\u063a\u0646\u064a\u0629", "\u0623\u063a\u0646\u064a\u0629", "mp3"],
+  description: "\u0627\u0644\u0628\u062d\u062b \u0639\u0646 \u0623\u063a\u0646\u064a\u0629 \u0648\u0625\u0631\u0633\u0627\u0644\u0647\u0627 \u0643\u0627\u0645\u0644\u0629 \u0643\u0631\u0633\u0627\u0644\u0629 \u0635\u0648\u062a\u064a\u0629.",
+  usage: "music [\u0627\u0633\u0645 \u0627\u0644\u0623\u063a\u0646\u064a\u0629 \u0623\u0648 \u0627\u0644\u0641\u0646\u0627\u0646]",
   category: "Entertainment",
 
   async execute({ api, event, args }) {
@@ -74,59 +25,72 @@ module.exports = {
 
     if (!query) {
       return api.sendMessage(
-        "🎵 الاستخدام: -music [اسم الأغنية]\n" +
-        "أمثلة:\n" +
-        "  -music Blinding Lights\n" +
-        "  -music The Weeknd\n" +
-        "  -music Fairuz",
+        "\uD83C\uDFB5 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645: -music [\u0627\u0633\u0645 \u0627\u0644\u0623\u063a\u0646\u064a\u0629]\n\u0623\u0645\u062b\u0644\u0629:\n  -music Blinding Lights\n  -music The Weeknd\n  -music Fairuz",
         threadID
       );
     }
 
-    await api.sendMessage("🔍 جارٍ البحث عن: " + query + " ...", threadID);
-
-    // ── Search ──
-    let results;
-    try {
-      const data = await itunesSearch(query);
-      results = (data.results || []).filter(r => r.kind === "song" && r.previewUrl);
-    } catch (e) {
-      return api.sendMessage("❌ فشل الاتصال بخادم البحث.\n" + e.message, threadID);
-    }
-
-    if (!results || results.length === 0) {
+    if (!ytSearch || !ytdl) {
       return api.sendMessage(
-        "😕 لم يُعثر على نتائج لـ «" + query + "».\n" +
-        "جرّب تغيير الكلمات أو الكتابة بالإنجليزية.",
+        "\u274C \u0645\u0643\u062a\u0628\u0629 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u0648\u0633\u064a\u0642\u0649 \u063a\u064a\u0631 \u0645\u062b\u0628\u062a\u0629 \u0628\u0639\u062f. \u0623\u0639\u062f \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0628\u0648\u062a.",
         threadID
       );
     }
 
-    const track = results[0];
-    const year  = track.releaseDate ? track.releaseDate.slice(0, 4) : "";
-    const genre = track.primaryGenreName || "";
+    await api.sendMessage("\uD83D\uDD0D \u062c\u0627\u0631\u064d \u0627\u0644\u0628\u062d\u062b \u0639\u0646: " + query + " ...", threadID);
 
-    // ── Download 30-second audio preview ──
-    const audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".m4a");
-
+    // ── Search YouTube ────────────────────────────────────────────────────────
+    let video;
     try {
-      await download(track.previewUrl, audioPath);
+      const result = await ytSearch(query);
+      // Pick first result under 10 minutes; skip livestreams / very long videos
+      const candidates = (result.videos || []).filter(v => v.seconds > 0 && v.seconds <= 600);
+      video = candidates[0] || result.videos[0];
     } catch (e) {
+      return api.sendMessage("\u274C \u0641\u0634\u0644 \u0627\u0644\u0628\u062d\u062b: " + e.message, threadID);
+    }
+
+    if (!video) {
       return api.sendMessage(
-        "❌ فشل تحميل الأغنية.\n" +
-        "🎵 " + track.trackName + " — " + track.artistName,
+        "\uD83D\uDE15 \u0644\u0645 \u064a\u064f\u0639\u062b\u0631 \u0639\u0644\u0649 \u0646\u062a\u0627\u0626\u062c \u0644\u0640 \u00ab" + query + "\u00bb.\n\u062c\u0631\u0651\u0628 \u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0643\u0644\u0645\u0627\u062a \u0623\u0648 \u0627\u0644\u0643\u062a\u0627\u0628\u0629 \u0628\u0627\u0644\u0625\u0646\u062c\u0644\u064a\u0632\u064a\u0629.",
+        threadID
+      );
+    }
+
+    await api.sendMessage(
+      "\u2B07\uFE0F \u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644: " + video.title + " (" + video.timestamp + ") ...",
+      threadID
+    );
+
+    const audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".mp4");
+
+    // ── Download full audio from YouTube ──────────────────────────────────────
+    try {
+      await new Promise((resolve, reject) => {
+        const stream = ytdl(video.url, {
+          filter:  "audioonly",
+          quality: "lowestaudio",
+        });
+        const file = fs.createWriteStream(audioPath);
+        stream.pipe(file);
+        file.on("finish", resolve);
+        file.on("error",  reject);
+        stream.on("error", reject);
+      });
+    } catch (e) {
+      try { fs.unlinkSync(audioPath); } catch {}
+      return api.sendMessage(
+        "\u274C \u0641\u0634\u0644 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0623\u063a\u0646\u064a\u0629.\n" + e.message,
         threadID
       );
     }
 
     const caption =
-      "🎵 " + track.trackName + "\n" +
-      "🎤 " + track.artistName + "\n" +
-      "💿 " + (track.collectionName || "Single") +
-      (year  ? "  •  📅 " + year  : "") +
-      (genre ? "  •  🎼 " + genre : "") + "\n" +
-      "⏱ " + fmtDuration(track.trackTimeMillis) + "  •  🎧 معاينة 30 ثانية";
+      "\uD83C\uDFB5 " + video.title + "\n" +
+      "\uD83C\uDFA4 " + (video.author && video.author.name ? video.author.name : "") + "\n" +
+      "\u23F1 " + video.timestamp;
 
+    // ── Send as voice/audio message ───────────────────────────────────────────
     try {
       await api.sendMessage(
         { body: caption, attachment: fs.createReadStream(audioPath) },
@@ -134,11 +98,11 @@ module.exports = {
       );
     } catch (e) {
       api.sendMessage(
-        "❌ تعذّر إرسال الملف الصوتي.\n" + caption,
+        "\u274C \u062a\u0639\u0630\u0651\u0631 \u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0645\u0644\u0641 \u0627\u0644\u0635\u0648\u062a\u064a.\n" + caption,
         threadID
       ).catch(() => {});
     } finally {
-      setTimeout(() => { try { fs.unlinkSync(audioPath); } catch {} }, 15000);
+      setTimeout(() => { try { fs.unlinkSync(audioPath); } catch {} }, 30000);
     }
   },
 };
