@@ -20,7 +20,7 @@ module.exports = {
   adminOnly: true,
 
   async execute({ api, event, args }) {
-    global._botApi = api;
+    
 
     const sub        = (args[0] || "").toLowerCase();
     const mentions   = event.mentions || {};

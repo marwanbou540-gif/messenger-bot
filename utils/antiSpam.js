@@ -1,24 +1,14 @@
 "use strict";
 
-const config = require("../config.json");
-
 const cooldowns = new Map();
 
-// Periodically purge expired cooldown entries to prevent memory leak
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, last] of cooldowns.entries()) {
-    if (now - last >= config.features.antiSpamCooldownMs) {
-      cooldowns.delete(key);
-    }
-  }
-}, 60000);
+let _cooldownMs = 3000;
+
+function configure(ms) { _cooldownMs = Math.max(500, ms || 3000); }
 
 function isOnCooldown(userID, cmd) {
-  const key = `${userID}:${cmd}`;
-  const last = cooldowns.get(key);
-  if (!last) return false;
-  return Date.now() - last < config.features.antiSpamCooldownMs;
+  const last = cooldowns.get(`${userID}:${cmd}`);
+  return last !== undefined && Date.now() - last < _cooldownMs;
 }
 
 function setCooldown(userID, cmd) {
@@ -26,11 +16,26 @@ function setCooldown(userID, cmd) {
 }
 
 function getRemainingCooldown(userID, cmd) {
-  const key = `${userID}:${cmd}`;
-  const last = cooldowns.get(key);
+  const last = cooldowns.get(`${userID}:${cmd}`);
   if (!last) return 0;
-  const remaining = config.features.antiSpamCooldownMs - (Date.now() - last);
-  return remaining > 0 ? remaining : 0;
+  return Math.max(0, _cooldownMs - (Date.now() - last));
 }
 
-module.exports = { isOnCooldown, setCooldown, getRemainingCooldown };
+function clearCooldown(userID, cmd) {
+  if (cmd) cooldowns.delete(`${userID}:${cmd}`);
+  else {
+    for (const k of [...cooldowns.keys()]) {
+      if (k.startsWith(`${userID}:`)) cooldowns.delete(k);
+    }
+  }
+}
+
+// Purge expired entries every 2 minutes to prevent memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, ts] of cooldowns) {
+    if (now - ts >= _cooldownMs) cooldowns.delete(k);
+  }
+}, 120000).unref();
+
+module.exports = { configure, isOnCooldown, setCooldown, getRemainingCooldown, clearCooldown };

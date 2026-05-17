@@ -1,18 +1,33 @@
 "use strict";
 
-// Shared locked-nicknames store: Map<threadID, Map<userID, nickname>>
+const logger = require("./logger");
+
+// Map<threadID, Map<userID, nickname>>
 const lockedNicknames = new Map();
 
-// Re-enforce locked nicknames every 60 seconds
-setInterval(async () => {
-  if (lockedNicknames.size === 0 || !global._botApi) return;
+let _apiRef     = null;
+let _enforceTimer = null;
+const ENFORCE_INTERVAL = 60000;
+
+function setApi(api) {
+  _apiRef = api;
+  if (!_enforceTimer) {
+    _enforceTimer = setInterval(_enforce, ENFORCE_INTERVAL);
+    _enforceTimer.unref();
+  }
+}
+
+async function _enforce() {
+  if (!_apiRef || lockedNicknames.size === 0) return;
   for (const [threadID, members] of lockedNicknames.entries()) {
     for (const [userID, nickname] of members.entries()) {
       try {
-        await global._botApi.nickname(nickname, threadID, userID);
-      } catch {}
+        await _apiRef.nickname(nickname, threadID, userID);
+      } catch (e) {
+        logger.debug("NickLock", `Re-enforce failed [${threadID}/${userID}]: ${e.message}`);
+      }
     }
   }
-}, 60000);
+}
 
-module.exports = { lockedNicknames };
+module.exports = { lockedNicknames, setApi };
