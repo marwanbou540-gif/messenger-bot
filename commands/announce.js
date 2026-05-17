@@ -17,10 +17,16 @@ module.exports = {
       return api.sendMessage(`❌ Provide a message.\nUsage: ${config.prefix}announce <message>`, event.threadID);
     }
 
+    let senderName = event.senderID;
+    try {
+      const info = await api.getUserInfo([event.senderID]);
+      senderName = info[event.senderID]?.name || event.senderID;
+    } catch (_) {}
+
     const msg =
       `📢 ══ ANNOUNCEMENT ══ 📢\n\n` +
       `${text}\n\n` +
-      `── From: Group Admin ──`;
+      `── From: ${senderName} ──`;
 
     api.sendMessage(msg, event.threadID);
   },
