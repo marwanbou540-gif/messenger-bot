@@ -17,7 +17,7 @@
   },
   "features": {
     "autoSaveAppState": true,
-    "autoSaveIntervalMs": 300000,
+    "autoSaveIntervalMs": 900000,
     "greetNewMembers": true,
     "farewellMembers": true,
     "antiSpam": true,
