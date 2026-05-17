@@ -26,6 +26,5 @@ module.exports = {
     try { await api.muteThread(event.threadID, minutes * 60); } catch (_) {}
 
     api.sendMessage(`🔇 Bot muted for ${minutes} minute(s) in this thread.`, event.threadID);
-    setTimeout(() => mutedThreads.delete(event.threadID), ms);
   },
 };
