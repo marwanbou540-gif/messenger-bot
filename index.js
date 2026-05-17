@@ -115,7 +115,7 @@ async function isThreadAdmin(api, senderID, threadID) {
 
 // ─── Shared state & dashboard API ────────────────────────────────────────────
 const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats } = require("./state");
-const { setBotApi, logActivity, logViolation, startApiServer } = require("./api");
+const { setBotApi, setBotStatus, logActivity, logViolation, startApiServer } = require("./api");
 
 // ─── Format template strings ──────────────────────────────────────────────────
 function formatMsg(template, vars) {
@@ -303,6 +303,7 @@ function startBot() {
         logger.error("Bot", "Account requires human verification. Please solve it in a browser first.");
       }
 
+      setBotStatus("offline — login failed, retrying…");
       logger.info("Bot", "Retrying in 30 seconds...");
       setTimeout(startBot, 30000);
       return;
@@ -326,9 +327,9 @@ function startBot() {
     // Auto-save appstate periodically
     startAppStateSaver(api);
 
-    // Start dashboard HTTP API
+    // Connect dashboard API to live bot instance
     setBotApi(api);
-    startApiServer();
+    setBotStatus("online");
 
     // React on successful re-login
     api.onReLoginSuccess = () => {
@@ -344,6 +345,7 @@ function startBot() {
 
     api.onReLoginFailure = (e) => {
       logger.error("Bot", "Auto re-login failed permanently:", e.message);
+      setBotStatus("offline — re-login failed");
       logger.info("Bot", "Restarting bot process in 60s...");
       setTimeout(() => { process.exit(1); }, 60000);
     };
@@ -395,4 +397,6 @@ process.on("unhandledRejection", (reason) => {
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
+// Start the HTTP API server immediately — independent of Messenger login
+startApiServer();
 startBot();
