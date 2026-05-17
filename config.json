@@ -18,8 +18,8 @@
   "features": {
     "autoSaveAppState": true,
     "autoSaveIntervalMs": 900000,
-    "greetNewMembers": true,
-    "farewellMembers": true,
+    "greetNewMembers": false,
+    "farewellMembers": false,
     "antiSpam": true,
     "antiSpamCooldownMs": 3000,
     "logMessages": true
