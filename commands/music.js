@@ -4,38 +4,61 @@ const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
 
+// وظيفة مساعدة: تضيف حد زمني لأي promise
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error(`انتهت مهلة ${label} (${ms / 1000}s)`)), ms)
+    ),
+  ]);
+}
+
 async function searchAndDownload(query, audioPath) {
   const playdl = require("play-dl");
 
-  const results = await playdl.search(query, {
-    source: { youtube: "video" },
-    limit: 5,
-  });
+  // بحث بحد أقصى 20 ثانية
+  const results = await withTimeout(
+    playdl.search(query, { source: { youtube: "video" }, limit: 5 }),
+    20000,
+    "البحث"
+  );
 
   if (!results || results.length === 0) {
     throw new Error("لم يُعثر على نتائج لـ: " + query);
   }
 
+  // اختر أول نتيجة أقل من 8 دقائق
   const video =
-    results.find(v => v.durationInSec && v.durationInSec < 600) || results[0];
+    results.find(v => v.durationInSec && v.durationInSec < 480) || results[0];
 
   if (!video) throw new Error("لا توجد نتائج مناسبة");
 
-  const stream = await playdl.stream(video.url, { quality: 2 });
+  // تجهيز الـ stream بحد أقصى 20 ثانية
+  const stream = await withTimeout(
+    playdl.stream(video.url, { quality: 2 }),
+    20000,
+    "تجهيز الصوت"
+  );
 
-  return new Promise((resolve, reject) => {
-    const writeStream = fs.createWriteStream(audioPath);
-    stream.stream.pipe(writeStream);
-    writeStream.on("finish", () =>
-      resolve({
-        title:    video.title            || query,
-        channel:  video.channel?.name   || "",
-        duration: video.durationRaw     || "",
-      })
-    );
-    writeStream.on("error", reject);
-    stream.stream.on("error", reject);
-  });
+  // كتابة الملف بحد أقصى 90 ثانية
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      const writeStream = fs.createWriteStream(audioPath);
+      stream.stream.pipe(writeStream);
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+      stream.stream.on("error", reject);
+    }),
+    90000,
+    "التحميل"
+  );
+
+  return {
+    title:    video.title          || query,
+    channel:  video.channel?.name || "",
+    duration: video.durationRaw   || "",
+  };
 }
 
 module.exports = {
@@ -56,7 +79,7 @@ module.exports = {
       );
     }
 
-    await api.sendMessage("🔍 جاري البحث والتحميل: " + query + " ...", threadID);
+    await api.sendMessage("🔍 جاري البحث عن: " + query + " ...", threadID);
 
     const audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".webm");
 
