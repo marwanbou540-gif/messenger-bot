@@ -4,13 +4,8 @@ const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
 
-let ytSearch, ytdl;
-try {
-  ytSearch = require("yt-search");
-  ytdl     = require("@distube/ytdl-core");
-} catch {
-  // Dependencies not installed yet — handled gracefully in execute()
-}
+let play;
+try { play = require("play-dl"); } catch { /* handled in execute */ }
 
 module.exports = {
   name: "music",
@@ -25,16 +20,13 @@ module.exports = {
 
     if (!query) {
       return api.sendMessage(
-        "\uD83C\uDFB5 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645: -music [\u0627\u0633\u0645 \u0627\u0644\u0623\u063a\u0646\u064a\u0629]\n\u0623\u0645\u062b\u0644\u0629:\n  -music Blinding Lights\n  -music The Weeknd\n  -music Fairuz",
+        "\uD83C\uDFB5 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645: -music [\u0627\u0633\u0645 \u0627\u0644\u0623\u063a\u0646\u064a\u0629]\n\u0623\u0645\u062b\u0644\u0629:\n  -music Blinding Lights\n  -music Fairuz",
         threadID
       );
     }
 
-    if (!ytSearch || !ytdl) {
-      return api.sendMessage(
-        "\u274C \u0645\u0643\u062a\u0628\u0629 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u0648\u0633\u064a\u0642\u0649 \u063a\u064a\u0631 \u0645\u062b\u0628\u062a\u0629 \u0628\u0639\u062f. \u0623\u0639\u062f \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0628\u0648\u062a.",
-        threadID
-      );
+    if (!play) {
+      return api.sendMessage("\u274C \u0645\u0643\u062a\u0628\u0629 play-dl \u063a\u064a\u0631 \u0645\u062b\u0628\u062a\u0629. \u0623\u0639\u062f \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0628\u0648\u062a.", threadID);
     }
 
     await api.sendMessage("\uD83D\uDD0D \u062c\u0627\u0631\u064d \u0627\u0644\u0628\u062d\u062b \u0639\u0646: " + query + " ...", threadID);
@@ -42,10 +34,8 @@ module.exports = {
     // ── Search YouTube ────────────────────────────────────────────────────────
     let video;
     try {
-      const result = await ytSearch(query);
-      // Pick first result under 10 minutes; skip livestreams / very long videos
-      const candidates = (result.videos || []).filter(v => v.seconds > 0 && v.seconds <= 600);
-      video = candidates[0] || result.videos[0];
+      const results = await play.search(query, { source: { youtube: "video" }, limit: 5 });
+      video = (results || []).find(v => v.durationInSec > 0 && v.durationInSec <= 600) || (results || [])[0];
     } catch (e) {
       return api.sendMessage("\u274C \u0641\u0634\u0644 \u0627\u0644\u0628\u062d\u062b: " + e.message, threadID);
     }
@@ -57,25 +47,23 @@ module.exports = {
       );
     }
 
+    const dur = video.durationRaw || "?:??";
     await api.sendMessage(
-      "\u2B07\uFE0F \u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644: " + video.title + " (" + video.timestamp + ") ...",
+      "\u2B07\uFE0F \u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644: " + video.title + " (" + dur + ") ...",
       threadID
     );
 
     const audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".mp4");
 
-    // ── Download full audio from YouTube ──────────────────────────────────────
+    // ── Stream full audio via play-dl ─────────────────────────────────────────
     try {
+      const stream = await play.stream(video.url, { quality: 2 });
       await new Promise((resolve, reject) => {
-        const stream = ytdl(video.url, {
-          filter:  "audioonly",
-          quality: "lowestaudio",
-        });
         const file = fs.createWriteStream(audioPath);
-        stream.pipe(file);
+        stream.stream.pipe(file);
         file.on("finish", resolve);
         file.on("error",  reject);
-        stream.on("error", reject);
+        stream.stream.on("error", reject);
       });
     } catch (e) {
       try { fs.unlinkSync(audioPath); } catch {}
@@ -87,10 +75,10 @@ module.exports = {
 
     const caption =
       "\uD83C\uDFB5 " + video.title + "\n" +
-      "\uD83C\uDFA4 " + (video.author && video.author.name ? video.author.name : "") + "\n" +
-      "\u23F1 " + video.timestamp;
+      "\uD83C\uDFA4 " + (video.channel && video.channel.name ? video.channel.name : "") + "\n" +
+      "\u23F1 " + dur;
 
-    // ── Send as voice/audio message ───────────────────────────────────────────
+    // ── Send as audio/voice message ───────────────────────────────────────────
     try {
       await api.sendMessage(
         { body: caption, attachment: fs.createReadStream(audioPath) },
