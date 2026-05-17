@@ -8,9 +8,9 @@ module.exports = {
   category: "General",
 
   async execute({ api, event }) {
-    const start = Date.now();
-    await api.sendMessage("🏓 Pinging...", event.threadID);
-    const latency = Date.now() - start;
-    api.sendMessage(`🏓 Pong! Latency: ${latency}ms`, event.threadID);
+    // Measure actual latency from when the user sent the message
+    const latency = event.timestamp ? Date.now() - event.timestamp : null;
+    const latencyText = latency !== null ? `${latency}ms` : "N/A";
+    api.sendMessage(`🏓 Pong! Latency: ${latencyText}`, event.threadID);
   },
 };
