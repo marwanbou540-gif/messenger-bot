@@ -1,68 +1,81 @@
-const fs = require("fs-extra");
-const path = require("path");
-const statePath = path.join(__dirname, "data/malakState.json");
+"use strict";
 
-function getState() {
-  try { return JSON.parse(fs.readFileSync(statePath, "utf-8")); }
-  catch { return { locks: {}, botAdmins: {}, awrwa: {} }; }
-}
-function saveState(s) {
-  fs.writeFileSync(statePath, JSON.stringify(s, null, 2));
-}
+const { lockedNames } = require("../utils/lockedNames");
+const { groupsCache }  = require("../state");
 
-if (!global.awrwaIntervals) global.awrwaIntervals = {};
+module.exports = {
+  name: "lockname",
+  aliases: ["lname", "namelock"],
+  description: "قفل اسم المجموعة ومنع أي شخص من تغييره.",
+  usage: "lockname [اسم اختياري]  |  lockname off",
+  category: "Admin",
+  adminOnly: true,
+  groupOnly: true,
 
-module.exports.config = {
-  name: "اوروا",
-  version: "1.0.0",
-  hasPermssion: 1,
-  credits: "كاڪو",
-  description: "يغير اسم الكروب ويمنع تغييره",
-  commandCategory: "الملاك",
-  usages: "اوروا [اسم] | اوروا وقف",
-  cooldowns: 3
-};
+  async execute({ api, event, args }) {
+    const { threadID } = event;
+    const arg = args.join(" ").trim();
 
-module.exports.run = async function ({ api, event, args }) {
-  const { threadID } = event;
-  const sub = args[0];
-
-  if (sub === "وقف") {
-    if (global.awrwaIntervals[threadID]) {
-      clearInterval(global.awrwaIntervals[threadID]);
-      delete global.awrwaIntervals[threadID];
+    // ── رفع القفل ─────────────────────────────────────────────────────────
+    if (arg.toLowerCase() === "off" || arg === "نزع") {
+      if (!lockedNames.has(threadID)) {
+        return api.sendMessage("ℹ️ اسم المجموعة غير مقفل أصلاً.", threadID);
+      }
+      lockedNames.delete(threadID);
+      return api.sendMessage("🔓 تم نزع قفل الاسم.\nيمكن الآن تغيير اسم المجموعة بحرية.", threadID);
     }
-    const state = getState();
-    delete state.awrwa[threadID];
-    saveState(state);
-    return api.sendMessage("تم إيقاف حماية الاسم ✅", threadID);
-  }
 
-  const newName = args.join(" ").trim();
-  if (!newName) return api.sendMessage("يرجى كتابة اسم الكروب الجديد!", threadID);
+    // ── تحديد الاسم المراد قفله ───────────────────────────────────────────
+    let nameToLock = arg;
 
-  try {
-    await api.setTitle(newName, threadID);
-    const state = getState();
-    state.awrwa[threadID] = newName;
-    saveState(state);
-
-    await api.sendMessage(`✅ تم تغيير اسم الكروب إلى: ${newName}\n🔒 الاسم محمي من التغيير`, threadID);
-
-    if (global.awrwaIntervals[threadID]) clearInterval(global.awrwaIntervals[threadID]);
-
-    global.awrwaIntervals[threadID] = setInterval(async () => {
+    if (!nameToLock) {
+      // لا يوجد اسم → قفل الاسم الحالي
       try {
         const info = await api.getThreadInfo(threadID);
-        const st = getState();
-        const protectedName = st.awrwa[threadID];
-        if (protectedName && info.threadName !== protectedName) {
-          await api.setTitle(protectedName, threadID);
+        nameToLock = info.name || "";
+        if (info.name) {
+          const c = groupsCache.get(threadID) || {};
+          groupsCache.set(threadID, { ...c, name: info.name });
         }
-      } catch (e) {}
-    }, 5000);
+      } catch (e) {
+        return api.sendMessage("❌ تعذّر جلب اسم المجموعة.\n" + e.message, threadID);
+      }
+    }
 
-  } catch (e) {
-    return api.sendMessage("❌ فشل في تغيير اسم الكروب: " + e.message, threadID);
-  }
+    if (!nameToLock) {
+      return api.sendMessage(
+        "❌ لم أتمكن من تحديد الاسم.\n" +
+        "الاستخدام:\n" +
+        "  -lockname         ← قفل الاسم الحالي\n" +
+        "  -lockname [اسم]  ← تعيين اسم جديد وقفله\n" +
+        "  -lockname off     ← نزع القفل",
+        threadID
+      );
+    }
+
+    // تغيير الاسم إذا طُلب ذلك
+    if (arg) {
+      try {
+        await api.setTitle(nameToLock, threadID);
+        const c = groupsCache.get(threadID) || {};
+        groupsCache.set(threadID, { ...c, name: nameToLock });
+      } catch (e) {
+        return api.sendMessage(
+          "❌ فشل تعيين الاسم. تأكد أن البوت مشرف.\n" + e.message,
+          threadID
+        );
+      }
+    }
+
+    // تسجيل القفل
+    lockedNames.set(threadID, nameToLock);
+
+    return api.sendMessage(
+      "🏷️ تم قفل اسم المجموعة على:\n" +
+      "«" + nameToLock + "»\n\n" +
+      "أي محاولة لتغيير الاسم ستُلغى تلقائياً.\n" +
+      "لنزع القفل: -lockname off",
+      threadID
+    );
+  },
 };
