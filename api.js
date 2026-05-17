@@ -144,7 +144,7 @@ function createApiServer() {
       await botApi.gcname(name, threadID);
       const cached = groupsCache.get(threadID) || {};
       groupsCache.set(threadID, { ...cached, name });
-      logActivity("Group " + threadID + " renamed to "" + name + "" via dashboard");
+      logActivity(`Group ${threadID} renamed to "${name}" via dashboard`);
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
