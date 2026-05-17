@@ -41,10 +41,14 @@ function createApiServer() {
   app.get("/health", (req, res) => {
     if (!botApi) return res.json({ status: botStatus, botName: config.bot.name, version: config.bot.version });
     return res.json({
-    status: "online", botName: config.bot.name, version: config.bot.version,
-    uptime: Math.floor((Date.now() - startTime) / 1000),
-    groupCount: groupsCache.size, lockedCount: lockedThreads.size,
-  }));
+      status:     "online",
+      botName:    config.bot.name,
+      version:    config.bot.version,
+      uptime:     Math.floor((Date.now() - startTime) / 1000),
+      groupCount: groupsCache.size,
+      lockedCount: lockedThreads.size,
+    });
+  });
 
   /* ── Groups list ── */
   app.get("/groups", (req, res) => {
