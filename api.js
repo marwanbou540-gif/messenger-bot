@@ -34,13 +34,17 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+// Rate-limit helper used in broadcast
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function createApiServer() {
   const app = express();
   app.use(cors({ origin: "*" }));
   app.use(express.json());
   app.use(authMiddleware);
 
-  /* ── Health ── */
   app.get("/health", (req, res) => {
     if (!botApi) return res.json({ status: botStatus, botName: config.bot.name, version: config.bot.version });
     return res.json({
@@ -53,7 +57,6 @@ function createApiServer() {
     });
   });
 
-  /* ── Groups list ── */
   app.get("/groups", (req, res) => {
     const groups = [];
     for (const [threadID, info] of groupsCache.entries()) {
@@ -76,7 +79,6 @@ function createApiServer() {
     res.json(groups);
   });
 
-  /* ── Group detail info ── */
   app.get("/groups/:threadID/info", async (req, res) => {
     const { threadID } = req.params;
     if (!botApi) { res.status(503).json({ error: "Bot not connected" }); return; }
@@ -105,13 +107,11 @@ function createApiServer() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Group stats ── */
   app.get("/groups/:threadID/stats", (req, res) => {
     const stats = groupStats.get(req.params.threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
     res.json(stats);
   });
 
-  /* ── Lock ── */
   app.post("/groups/:threadID/lock", (req, res) => {
     const { threadID } = req.params;
     if (req.body.locked) lockedThreads.add(threadID);
@@ -120,7 +120,6 @@ function createApiServer() {
     res.json({ success: true, isLocked: lockedThreads.has(threadID) });
   });
 
-  /* ── Mute ── */
   app.post("/groups/:threadID/mute", (req, res) => {
     const { threadID } = req.params;
     const minutes      = parseInt(req.body.minutes) || 0;
@@ -136,7 +135,6 @@ function createApiServer() {
     }
   });
 
-  /* ── Rename ── */
   app.post("/groups/:threadID/rename", async (req, res) => {
     const { threadID } = req.params;
     const { name }     = req.body;
@@ -151,7 +149,6 @@ function createApiServer() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Send message ── */
   app.post("/groups/:threadID/message", async (req, res) => {
     const { threadID } = req.params;
     const { message }  = req.body;
@@ -164,7 +161,6 @@ function createApiServer() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Members ── */
   app.get("/groups/:threadID/members", async (req, res) => {
     const { threadID } = req.params;
     if (!botApi) { res.status(503).json({ error: "Bot not connected" }); return; }
@@ -177,7 +173,6 @@ function createApiServer() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Kick ── */
   app.post("/groups/:threadID/kick", async (req, res) => {
     const { threadID } = req.params;
     const { userID }   = req.body;
@@ -190,14 +185,12 @@ function createApiServer() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Auto-reply: get ── */
   app.get("/groups/:threadID/autoreply", (req, res) => {
     const ar = autoReplies.get(req.params.threadID);
     if (!ar) res.json({ enabled: false, message: "", cooldownMinutes: 30 });
     else     res.json({ enabled: ar.enabled, message: ar.message, cooldownMinutes: Math.round(ar.cooldownMs / 60000) });
   });
 
-  /* ── Auto-reply: set ── */
   app.put("/groups/:threadID/autoreply", (req, res) => {
     const { threadID }       = req.params;
     const { message, enabled, cooldownMinutes } = req.body;
@@ -209,14 +202,12 @@ function createApiServer() {
     res.json({ success: true });
   });
 
-  /* ── Auto-reply: delete ── */
   app.delete("/groups/:threadID/autoreply", (req, res) => {
     autoReplies.delete(req.params.threadID);
     logActivity("Auto-reply removed for " + req.params.threadID + " via dashboard");
     res.json({ success: true });
   });
 
-  /* ── Pending message requests ── */
   app.get("/pending", async (req, res) => {
     if (!botApi) { res.status(503).json({ error: "Bot not connected" }); return; }
     try {
@@ -229,22 +220,20 @@ function createApiServer() {
         timestamp:   t.timestamp || 0,
       }));
       res.json(result);
-    } catch (e) { res.json([]); } // return empty list if unsupported
+    } catch (e) { res.json([]); }
   });
 
-  /* ── Accept pending request ── */
   app.post("/pending/:threadID/accept", async (req, res) => {
     const { threadID } = req.params;
     if (!botApi) { res.status(503).json({ error: "Bot not connected" }); return; }
     try {
-      // Accepting by sending a message moves thread from PENDING to INBOX
       await botApi.sendMessage(req.body.message || ".", threadID);
       logActivity("Accepted message request from " + threadID + " via dashboard");
       res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  /* ── Broadcast ── */
+  /* ── Broadcast with rate limiting ── */
   app.post("/broadcast", async (req, res) => {
     const { message, threadIDs } = req.body;
     const targets = threadIDs || [...groupsCache.keys()];
@@ -253,16 +242,16 @@ function createApiServer() {
     let sent = 0, failed = 0;
     for (const tid of targets) {
       try { await botApi.sendMessage(message, tid); sent++; } catch { failed++; }
+      // Pause between sends to avoid hitting Facebook API rate limits
+      await delay(1200);
     }
     logActivity("Broadcast sent to " + sent + " groups, " + failed + " failed — via dashboard");
     res.json({ success: true, sent, failed });
   });
 
-  /* ── Restart ── */
   app.post("/restart", async (req, res) => {
     res.json({ success: true, message: "Restarting in 2 seconds..." });
     logActivity("Bot restart triggered via dashboard API");
-    // Save appstate before exiting
     try {
       const fs   = require("fs");
       const path = require("path");
@@ -277,7 +266,6 @@ function createApiServer() {
     setTimeout(() => process.exit(0), 2000);
   });
 
-  /* ── Activity & violations ── */
   app.get("/activity",   (req, res) => res.json(activityLog.slice(-100).reverse()));
   app.get("/violations", (req, res) => res.json(lockViolations.slice(-100).reverse()));
 
