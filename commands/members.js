@@ -13,7 +13,6 @@ module.exports = {
     if (!info) return api.sendMessage("❌ Could not retrieve group info.", event.threadID);
 
     const userInfo = await api.getUserInfo(info.participantIDs);
-    const names = Object.values(userInfo).map((u, i) => `${i + 1}. ${u.name}`);
     const adminIDs = (info.adminIDs || []).map(a => a.id);
 
     const lines = info.participantIDs.map((id, i) => {
