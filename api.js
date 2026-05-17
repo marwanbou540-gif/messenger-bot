@@ -249,6 +249,25 @@ function createApiServer() {
     res.json({ success: true, sent, failed });
   });
 
+  /* ── Restart ── */
+  app.post("/restart", async (req, res) => {
+    res.json({ success: true, message: "Restarting in 2 seconds..." });
+    logActivity("Bot restart triggered via dashboard API");
+    // Save appstate before exiting
+    try {
+      const fs   = require("fs");
+      const path = require("path");
+      const cfg  = require("./config.json");
+      if (botApi) {
+        const state = botApi.getAppState();
+        if (Array.isArray(state) && state.length > 0) {
+          fs.writeFileSync(path.resolve(__dirname, cfg.appStatePath), JSON.stringify(state, null, 2));
+        }
+      }
+    } catch {}
+    setTimeout(() => process.exit(0), 2000);
+  });
+
   /* ── Activity & violations ── */
   app.get("/activity",   (req, res) => res.json(activityLog.slice(-100).reverse()));
   app.get("/violations", (req, res) => res.json(lockViolations.slice(-100).reverse()));
