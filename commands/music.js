@@ -12,7 +12,7 @@ function itunesSearch(query) {
   return new Promise((resolve, reject) => {
     const q   = encodeURIComponent(query);
     const url = "https://itunes.apple.com/search?term=" + q +
-                "&media=music&entity=song&limit=6&lang=en_us";
+                "&media=music&entity=song&limit=10&lang=en_us";
     const req = https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
       let data = "";
       res.on("data", c => data += c);
@@ -26,7 +26,7 @@ function itunesSearch(query) {
   });
 }
 
-// ── Download a URL to a temp file (handles redirects) ────────────────────────
+// ── Download a URL to a temp file (follows redirects) ────────────────────────
 
 function download(url, dest) {
   return new Promise((resolve, reject) => {
@@ -51,7 +51,7 @@ function download(url, dest) {
   });
 }
 
-// ── Format duration ms → m:ss ────────────────────────────────────────────────
+// ── Format duration ms → m:ss ─────────────────────────────────────────────────
 
 function fmtDuration(ms) {
   if (!ms) return "?:??";
@@ -59,12 +59,12 @@ function fmtDuration(ms) {
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 
-// ── Main command ─────────────────────────────────────────────────────────────
+// ── Main command ──────────────────────────────────────────────────────────────
 
 module.exports = {
   name: "music",
   aliases: ["song", "اغنية", "أغنية", "mp3"],
-  description: "البحث عن أغنية وإرسال معلوماتها ومعاينة صوتية.",
+  description: "البحث عن أغنية وإرسالها كرسالة صوتية.",
   usage: "music [اسم الأغنية أو الفنان]",
   category: "Entertainment",
 
@@ -83,19 +83,18 @@ module.exports = {
       );
     }
 
-    // Searching notice
     await api.sendMessage("🔍 جارٍ البحث عن: " + query + " ...", threadID);
 
     // ── Search ──
     let results;
     try {
       const data = await itunesSearch(query);
-      results    = (data.results || []).filter(r => r.kind === "song").slice(0, 5);
+      results = (data.results || []).filter(r => r.kind === "song" && r.previewUrl);
     } catch (e) {
       return api.sendMessage("❌ فشل الاتصال بخادم البحث.\n" + e.message, threadID);
     }
 
-    if (!results.length) {
+    if (!results || results.length === 0) {
       return api.sendMessage(
         "😕 لم يُعثر على نتائج لـ «" + query + "».\n" +
         "جرّب تغيير الكلمات أو الكتابة بالإنجليزية.",
@@ -103,65 +102,43 @@ module.exports = {
       );
     }
 
-    // ── Build results list ──
-    const top   = results[0];
-    const genre = top.primaryGenreName || "";
-    const year  = top.releaseDate ? top.releaseDate.slice(0, 4) : "";
+    const track = results[0];
+    const year  = track.releaseDate ? track.releaseDate.slice(0, 4) : "";
+    const genre = track.primaryGenreName || "";
 
-    const header = [
-      "🎵 نتائج البحث: «" + query + "»",
-      "━━━━━━━━━━━━━━━━━━━━━━",
-    ];
+    // ── Download 30-second audio preview ──
+    const audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".m4a");
 
-    const rows = results.map((r, i) =>
-      (i + 1) + ". " + r.trackName + "\n" +
-      "   🎤 " + r.artistName + "\n" +
-      "   💿 " + (r.collectionName || "Single") + "  •  ⏱ " + fmtDuration(r.trackTimeMillis) +
-      (r.previewUrl ? "  🎧" : "")
-    );
-
-    await api.sendMessage(header.concat(rows).join("\n\n"), threadID);
-
-    // ── Send top result: artwork + 30s preview ──
-    const tmp         = os.tmpdir();
-    const artPath     = path.join(tmp, "art_"  + Date.now() + ".jpg");
-    const audioPath   = path.join(tmp, "prev_" + Date.now() + ".m4a");
-    const attachments = [];
-    const toClean     = [];
-
-    // Album artwork (600×600)
-    const artUrl = (top.artworkUrl100 || "").replace("100x100bb", "600x600bb");
-    if (artUrl) {
-      try {
-        await download(artUrl, artPath);
-        attachments.push(fs.createReadStream(artPath));
-        toClean.push(artPath);
-      } catch {}
+    try {
+      await download(track.previewUrl, audioPath);
+    } catch (e) {
+      return api.sendMessage(
+        "❌ فشل تحميل الأغنية.\n" +
+        "🎵 " + track.trackName + " — " + track.artistName,
+        threadID
+      );
     }
 
-    // 30-second audio preview
-    if (top.previewUrl) {
-      try {
-        await download(top.previewUrl, audioPath);
-        attachments.push(fs.createReadStream(audioPath));
-        toClean.push(audioPath);
-      } catch {}
+    const caption =
+      "🎵 " + track.trackName + "\n" +
+      "🎤 " + track.artistName + "\n" +
+      "💿 " + (track.collectionName || "Single") +
+      (year  ? "  •  📅 " + year  : "") +
+      (genre ? "  •  🎼 " + genre : "") + "\n" +
+      "⏱ " + fmtDuration(track.trackTimeMillis) + "  •  🎧 معاينة 30 ثانية";
+
+    try {
+      await api.sendMessage(
+        { body: caption, attachment: fs.createReadStream(audioPath) },
+        threadID
+      );
+    } catch (e) {
+      api.sendMessage(
+        "❌ تعذّر إرسال الملف الصوتي.\n" + caption,
+        threadID
+      ).catch(() => {});
+    } finally {
+      setTimeout(() => { try { fs.unlinkSync(audioPath); } catch {} }, 15000);
     }
-
-    if (attachments.length) {
-      const caption =
-        "🎵 " + top.trackName + "\n" +
-        "🎤 " + top.artistName + "\n" +
-        "💿 " + (top.collectionName || "Single") +
-        (year  ? "  •  📅 " + year  : "") +
-        (genre ? "  •  🎼 " + genre : "") + "\n" +
-        "⏱ " + fmtDuration(top.trackTimeMillis) +
-        (top.previewUrl ? "  •  🎧 معاينة 30 ثانية" : "");
-
-      await api.sendMessage({ body: caption, attachment: attachments }, threadID).catch(() => {});
-    }
-
-    // Cleanup
-    setTimeout(() => toClean.forEach(f => { try { fs.unlinkSync(f); } catch {} }), 15000);
   },
 };
