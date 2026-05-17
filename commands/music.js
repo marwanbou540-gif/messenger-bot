@@ -1,14 +1,39 @@
 "use strict";
 
-const fs   = require("fs");
-const os   = require("os");
-const path = require("path");
+const fs            = require("fs");
+const os            = require("os");
+const path          = require("path");
+const https         = require("https");
+const { execFileSync, execSync } = require("child_process");
+
+const YTDLP_BIN = path.join(os.tmpdir(), "yt-dlp-standalone");
+
+// ── تحميل yt-dlp standalone binary (لا يحتاج Python) ─────────────────────────
+async function ensureYtDlp() {
+  // إذا كان موجوداً وصالحاً نتخطى التحميل
+  if (fs.existsSync(YTDLP_BIN)) {
+    try {
+      execFileSync(YTDLP_BIN, ["--version"], { stdio: "pipe", timeout: 5000 });
+      return; // ✅ موجود وصالح
+    } catch {
+      fs.unlinkSync(YTDLP_BIN); // تالف، احذفه وأعد التحميل
+    }
+  }
+
+  const url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
+  // استخدام curl لتحميل الملف (يتعامل مع الـ redirects تلقائياً)
+  execSync(`curl -L --silent --output "${YTDLP_BIN}" "${url}"`, {
+    timeout: 120000,
+    stdio: "pipe",
+  });
+  fs.chmodSync(YTDLP_BIN, 0o755);
+}
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
     new Promise((_, rej) =>
-      setTimeout(() => rej(new Error(`⏳ انتهت مهلة ${label} بعد ${ms / 1000}s`)), ms)
+      setTimeout(() => rej(new Error(`⏳ انتهت مهلة ${label} (${ms / 1000}s)`)), ms)
     ),
   ]);
 }
@@ -16,42 +41,28 @@ function withTimeout(promise, ms, label) {
 async function searchVideo(query) {
   const ytSearch = require("yt-search");
   const result   = await withTimeout(ytSearch(query), 15000, "البحث");
-  const videos   = result.videos || [];
-  if (!videos.length) throw new Error("لم يُعثر على نتائج لـ: " + query);
-  // أقصر من 8 دقائق يُفضَّل
-  return videos.find(v => v.seconds && v.seconds < 480) || videos[0];
+  const videos   = (result.videos || []).filter(v => v.seconds && v.seconds < 600);
+  if (!videos.length) throw new Error("لم يُعثر على نتائج مناسبة لـ: " + query);
+  return videos[0];
 }
 
-async function downloadAudio(videoUrl, audioPath) {
-  const ytdl = require("@distube/ytdl-core");
+async function downloadAudio(videoUrl, outPath) {
+  await withTimeout(ensureYtDlp(), 130000, "تجهيز أداة التحميل");
 
-  // جرب m4a أولاً (Facebook يقبلها)، ثم أي صوت
-  const formats = ytdl.filterFormats(
-    (await withTimeout(ytdl.getInfo(videoUrl), 20000, "جلب معلومات الأغنية")).formats,
-    f => f.hasAudio && !f.hasVideo
+  // تحميل أفضل صوت بصيغة m4a أو bestaudio، حد أقصى 50MB
+  execFileSync(
+    YTDLP_BIN,
+    [
+      "--no-playlist",
+      "--max-filesize", "50m",
+      "-f", "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio",
+      "-o", outPath,
+      "--no-part",
+      "--quiet",
+      videoUrl,
+    ],
+    { stdio: "pipe", timeout: 120000 }
   );
-
-  const m4aFmt = formats.find(f => f.container === "mp4" || f.mimeType?.includes("mp4"));
-  const chosen  = m4aFmt || formats[0];
-  if (!chosen) throw new Error("لا يوجد تنسيق صوتي متاح.");
-
-  const ext = (m4aFmt ? ".m4a" : ".webm");
-  const finalPath = audioPath.replace(".tmp", ext);
-
-  await withTimeout(
-    new Promise((resolve, reject) => {
-      const stream = ytdl(videoUrl, { format: chosen });
-      const ws     = fs.createWriteStream(finalPath);
-      stream.pipe(ws);
-      ws.on("finish", () => resolve(finalPath));
-      ws.on("error",  reject);
-      stream.on("error", reject);
-    }),
-    120000,
-    "التحميل"
-  );
-
-  return finalPath;
 }
 
 module.exports = {
@@ -72,28 +83,30 @@ module.exports = {
       );
     }
 
-    const statusMsg = await api.sendMessage("🔍 جاري البحث عن: " + query + " ...", threadID)
-      .catch(() => null);
+    await api.sendMessage("🔍 جاري البحث عن: " + query + " ...", threadID).catch(() => {});
 
     let audioPath = null;
 
     try {
-      // 1. بحث
+      // 1. بحث عن الفيديو
       const video = await searchVideo(query);
 
-      // 2. إبلاغ المستخدم باسم الأغنية الفعلي
-      if (statusMsg) {
-        api.sendMessage(
-          `🎵 وجدتها: ${video.title}\n⏱ المدة: ${video.timestamp || "?"}\n⬇️ جاري التحميل...`,
-          threadID
-        ).catch(() => {});
-      }
+      // 2. إبلاغ المستخدم
+      await api.sendMessage(
+        `🎵 وجدتها: ${video.title}\n⏱ المدة: ${video.timestamp || "?"}\n⬇️ جاري التحميل...`,
+        threadID
+      ).catch(() => {});
 
-      // 3. تحميل
-      audioPath = await downloadAudio(video.url, path.join(os.tmpdir(), "music_" + Date.now() + ".tmp"));
+      // 3. تحميل الصوت
+      audioPath = path.join(os.tmpdir(), "music_" + Date.now() + ".m4a");
+      await withTimeout(
+        (async () => downloadAudio(video.url, audioPath))(),
+        130000,
+        "التحميل"
+      );
 
       if (!fs.existsSync(audioPath) || fs.statSync(audioPath).size === 0) {
-        throw new Error("الملف الصوتي فارغ بعد التحميل.");
+        throw new Error("الملف الصوتي فارغ أو لم يُنشأ.");
       }
 
       const caption =
@@ -113,9 +126,7 @@ module.exports = {
         : "❌ فشل تحميل الأغنية.\n" + e.message.slice(0, 300);
       await api.sendMessage(msg, threadID).catch(() => {});
     } finally {
-      if (audioPath) {
-        setTimeout(() => { try { fs.unlinkSync(audioPath); } catch {} }, 20000);
-      }
+      if (audioPath) setTimeout(() => { try { fs.unlinkSync(audioPath); } catch {} }, 20000);
     }
   },
 };
