@@ -22,7 +22,8 @@ module.exports = {
         return api.sendMessage("ℹ️ اسم المجموعة غير مقفل أصلاً.", threadID);
       }
       lockedNames.delete(threadID);
-      return api.sendMessage("🔓 تم نزع قفل الاسم.\nيمكن الآن تغيير اسم المجموعة بحرية.", threadID);
+      return api.sendMessage("🔓 تم نزع قفل الاسم.
+يمكن الآن تغيير اسم المجموعة بحرية.", threadID);
     }
 
     // ── تحديد الاسم المراد قفله ───────────────────────────────────────────
@@ -38,16 +39,21 @@ module.exports = {
           groupsCache.set(threadID, { ...c, name: info.name });
         }
       } catch (e) {
-        return api.sendMessage("❌ تعذّر جلب اسم المجموعة.\n" + e.message, threadID);
+        return api.sendMessage("❌ تعذّر جلب اسم المجموعة.
+" + e.message, threadID);
       }
     }
 
     if (!nameToLock) {
       return api.sendMessage(
-        "❌ لم أتمكن من تحديد الاسم.\n" +
-        "الاستخدام:\n" +
-        "  -lockname         ← قفل الاسم الحالي\n" +
-        "  -lockname [اسم]  ← تعيين اسم جديد وقفله\n" +
+        "❌ لم أتمكن من تحديد الاسم.
+" +
+        "الاستخدام:
+" +
+        "  -lockname         ← قفل الاسم الحالي
+" +
+        "  -lockname [اسم]  ← تعيين اسم جديد وقفله
+" +
         "  -lockname off     ← نزع القفل",
         threadID
       );
@@ -56,12 +62,13 @@ module.exports = {
     // تغيير الاسم إذا طُلب ذلك
     if (arg) {
       try {
-        await api.setTitle(nameToLock, threadID);
+        await api.gcname(nameToLock, threadID);
         const c = groupsCache.get(threadID) || {};
         groupsCache.set(threadID, { ...c, name: nameToLock });
       } catch (e) {
         return api.sendMessage(
-          "❌ فشل تعيين الاسم. تأكد أن البوت مشرف.\n" + e.message,
+          "❌ فشل تعيين الاسم. تأكد أن البوت مشرف.
+" + e.message,
           threadID
         );
       }
@@ -71,9 +78,13 @@ module.exports = {
     lockedNames.set(threadID, nameToLock);
 
     return api.sendMessage(
-      "🏷️ تم قفل اسم المجموعة على:\n" +
-      "«" + nameToLock + "»\n\n" +
-      "أي محاولة لتغيير الاسم ستُلغى تلقائياً.\n" +
+      "🏷️ تم قفل اسم المجموعة على:
+" +
+      "«" + nameToLock + "»
+
+" +
+      "أي محاولة لتغيير الاسم ستُلغى تلقائياً.
+" +
       "لنزع القفل: -lockname off",
       threadID
     );
