@@ -38,7 +38,9 @@ function createApiServer() {
   app.use(authMiddleware);
 
   /* ── Health ── */
-  app.get("/health", (req, res) => res.json({
+  app.get("/health", (req, res) => {
+    if (!botApi) return res.json({ status: botStatus, botName: config.bot.name, version: config.bot.version });
+    return res.json({
     status: "online", botName: config.bot.name, version: config.bot.version,
     uptime: Math.floor((Date.now() - startTime) / 1000),
     groupCount: groupsCache.size, lockedCount: lockedThreads.size,
@@ -281,4 +283,4 @@ function startApiServer() {
   app.listen(port, () => logger.success("Dashboard", "API server listening on port " + port));
 }
 
-module.exports = { setBotApi, logActivity, logViolation, startApiServer };
+module.exports = { setBotApi, setBotStatus, logActivity, logViolation, startApiServer };
