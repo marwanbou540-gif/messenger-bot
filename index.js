@@ -227,7 +227,7 @@ async function handleEvent(api, event) {
       const newName = logMessageData?.name || logMessageData?.threadName || "";
       if (newName && newName !== locked) {
         try {
-          await api.setTitle(locked, threadID);
+          await api.gcname(locked, threadID);
           api.sendMessage(
             `🔒 تم استعادة اسم المجموعة إلى:\n«${locked}»\n\nالاسم مقفل ولا يمكن تغييره.`,
             threadID
