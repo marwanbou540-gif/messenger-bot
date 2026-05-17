@@ -18,7 +18,7 @@ module.exports = {
     }
 
     try {
-      await api.gcname(newName, event.threadID);
+      await api.setTitle(newName, event.threadID);
       api.sendMessage(`✅ Group renamed to: ${newName}`, event.threadID);
     } catch (e) {
       api.sendMessage(`❌ Error: ${e.message}`, event.threadID);
