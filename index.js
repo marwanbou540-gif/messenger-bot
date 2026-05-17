@@ -1,6 +1,7 @@
 "use strict";
 
 const fs      = require("fs");
+const https   = require("https");
 const path    = require("path");
 const { login } = require("@neoaz07/nkxfca");
 const logger    = require("./utils/logger");
@@ -9,7 +10,56 @@ const config    = require("./config.json");
 
 const APP_STATE_PATH  = path.resolve(__dirname, config.appStatePath);
 const COMMANDS_DIR    = path.resolve(__dirname, "commands");
+const GH_TOKEN        = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "";
+const GH_REPO         = "marwanbou540-gif/messenger-bot";
 
+// ── Push appstate.json back to GitHub so cookies survive Railway restarts ─────
+let _ghAppStateSha = "";   // cached to skip extra fetch requests
+
+async function pushAppStateToGitHub(filePath) {
+  if (!GH_TOKEN) return;   // silently skip if env var not set on Railway
+  const content = fs.readFileSync(filePath, "utf8");
+
+  // Fetch current file SHA if not cached
+  if (!_ghAppStateSha) {
+    const res = await new Promise((resolve, reject) => {
+      https.get({
+        hostname: "api.github.com",
+        path: `/repos/${GH_REPO}/contents/appstate.json`,
+        headers: { "Authorization": `token ${GH_TOKEN}`, "User-Agent": "bot-appstate", "Accept": "application/vnd.github.v3+json" }
+      }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => resolve(JSON.parse(d))); }).on("error", reject);
+    });
+    _ghAppStateSha = res.sha || "";
+  }
+
+  const body = JSON.stringify({
+    message: "chore: auto-update appstate.json [skip ci]",
+    content: Buffer.from(content).toString("base64"),
+    sha: _ghAppStateSha,
+  });
+
+  const result = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: "api.github.com",
+      path: `/repos/${GH_REPO}/contents/appstate.json`,
+      method: "PUT",
+      headers: { "Authorization": `token ${GH_TOKEN}`, "Accept": "application/vnd.github.v3+json", "User-Agent": "bot-appstate", "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) }
+    }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => resolve(JSON.parse(d))); });
+    req.on("error", reject); req.write(body); req.end();
+  });
+
+  // Update cached SHA from the response
+  if (result.content && result.content.sha) _ghAppStateSha = result.content.sha;
+}
+
+function saveAndPushAppState(label) {
+  try {
+    const state = (typeof label === "object") ? label : null;
+    // Called with api object when triggering save
+  } catch {}
+}
+
+// ── Load appstate from disk ───────────────────────────────────────────────────
 function loadAppState() {
   if (!fs.existsSync(APP_STATE_PATH)) {
     logger.error("Bot", `appstate.json not found at: ${APP_STATE_PATH}`);
@@ -51,6 +101,7 @@ function loadCommands() {
   return commands;
 }
 
+// ── Periodic appstate saver (local + GitHub) ──────────────────────────────────
 function startAppStateSaver(api) {
   if (!config.features.autoSaveAppState) return;
   const interval = config.features.autoSaveIntervalMs || 300000;
@@ -59,13 +110,16 @@ function startAppStateSaver(api) {
       const state = api.getAppState();
       if (Array.isArray(state) && state.length > 0) {
         fs.writeFileSync(APP_STATE_PATH, JSON.stringify(state, null, 2));
-        logger.debug("AppState", "Session cookies saved.");
+        logger.debug("AppState", "Session cookies saved locally.");
+        pushAppStateToGitHub(APP_STATE_PATH)
+          .then(() => logger.debug("AppState", "Cookies pushed to GitHub."))
+          .catch(e  => logger.warn("AppState", `GitHub push failed: ${e.message}`));
       }
     } catch (e) {
       logger.warn("AppState", `Failed to save appstate: ${e.message}`);
     }
   }, interval);
-  logger.info("AppState", `Auto-save enabled every ${interval / 1000}s.`);
+  logger.info("AppState", `Auto-save enabled every ${interval / 1000}s (local + GitHub).`);
 }
 
 function isBotAdmin(senderID) {
@@ -139,7 +193,6 @@ async function handleMessage(api, event, commands) {
     mutedThreads.delete(threadID);
   }
 
-  // Cache thread-admin result to avoid a duplicate getThreadInfo call for adminOnly commands
   let cachedIsThreadAdmin = null;
   if (lockedThreads.has(threadID)) {
     const botAdm = isBotAdmin(senderID);
@@ -175,10 +228,9 @@ async function handleMessage(api, event, commands) {
   }
 
   if (cmd.groupOnly && !isGroup) {
-    return api.sendMessage("❌ هذا الأمر للمجموعات فقط.", threadID);
+    return api.sendMessage("\u274C \u0647\u0630\u0627 \u0627\u0644\u0623\u0645\u0631 \u0644\u0644\u0645\u062c\u0645\u0648\u0639\u0627\u062a \u0641\u0642\u0637.", threadID);
   }
 
-  // Reuse cached admin check to avoid a second getThreadInfo API call
   if (cmd.adminOnly) {
     const botAdm = isBotAdmin(senderID);
     if (!botAdm) {
@@ -186,7 +238,7 @@ async function handleMessage(api, event, commands) {
         ? cachedIsThreadAdmin
         : await isThreadAdmin(api, senderID, threadID);
       if (!threadAdm) {
-        return api.sendMessage("🔒 هذا الأمر يتطلب صلاحية مشرف.", threadID);
+        return api.sendMessage("\uD83D\uDD12 \u0647\u0630\u0627 \u0627\u0644\u0623\u0645\u0631 \u064a\u062a\u0637\u0644\u0628 \u0635\u0644\u0627\u062d\u064a\u0629 \u0645\u0634\u0631\u0641.", threadID);
       }
     }
   }
@@ -194,12 +246,12 @@ async function handleMessage(api, event, commands) {
   if (config.features.antiSpam) {
     if (antiSpam.isOnCooldown(senderID, cmd.name)) {
       const remaining = (antiSpam.getRemainingCooldown(senderID, cmd.name) / 1000).toFixed(1);
-      return api.sendMessage(`⏳ انتظر ${remaining} ثانية قبل استخدام هذا الأمر مجدداً.`, threadID);
+      return api.sendMessage(`\u23F3 \u0627\u0646\u062a\u0638\u0631 ${remaining} \u062b\u0627\u0646\u064a\u0629 \u0642\u0628\u0644 \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0647\u0630\u0627 \u0627\u0644\u0623\u0645\u0631 \u0645\u062c\u062f\u062f\u0627\u064b.`, threadID);
     }
     antiSpam.setCooldown(senderID, cmd.name);
   }
 
-  logger.info("Command", `[${threadID}] ${senderID} → ${prefix}${cmd.name} ${args.join(" ")}`);
+  logger.info("Command", `[${threadID}] ${senderID} \u2192 ${prefix}${cmd.name} ${args.join(" ")}`);
   if (isGroup) {
     const cs = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
     cs.commandCount++;
@@ -220,7 +272,6 @@ async function handleEvent(api, event) {
   const { type, threadID, logMessageData, logMessageType } = event;
   if (type !== "event") return;
 
-  // Revert group name if it is locked
   if (logMessageType === "log:thread-name") {
     const locked = lockedNames.get(threadID);
     if (locked) {
@@ -229,7 +280,7 @@ async function handleEvent(api, event) {
         try {
           await api.gcname(locked, threadID);
           api.sendMessage(
-            `🔒 تم استعادة اسم المجموعة إلى:\n«${locked}»\n\nالاسم مقفل ولا يمكن تغييره.`,
+            `\uD83D\uDD12 \u062a\u0645 \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0633\u0645 \u0627\u0644\u0645\u062c\u0645\u0648\u0639\u0629 \u0625\u0644\u0649:\n\u00ab${locked}\u00bb\n\n\u0627\u0644\u0627\u0633\u0645 \u0645\u0642\u0641\u0644 \u0648\u0644\u0627 \u064a\u0645\u0643\u0646 \u062a\u063a\u064a\u064a\u0631\u0647.`,
             threadID
           );
         } catch (e) {
@@ -239,7 +290,6 @@ async function handleEvent(api, event) {
     }
   }
 
-  // Greet new members
   if (logMessageType === "log:subscribe" && config.features.greetNewMembers) {
     const addedIDs = logMessageData?.addedParticipants?.map(p => p.userFbId || p.id) || [];
     const botID    = api.getCurrentUserID();
@@ -254,7 +304,6 @@ async function handleEvent(api, event) {
     }
   }
 
-  // Farewell leaving members
   if (logMessageType === "log:unsubscribe" && config.features.farewellMembers) {
     const leftIDs = logMessageData?.leftParticipantFbId
       ? [logMessageData.leftParticipantFbId]
@@ -289,7 +338,7 @@ function startBot() {
       if (err.error === "login-approval" || String(err).includes("checkpoint")) {
         logger.error("Bot", "Account requires human verification.");
       }
-      setBotStatus("offline — login failed, retrying…");
+      setBotStatus("offline \u2014 login failed, retrying\u2026");
       logger.info("Bot", "Retrying in 30 seconds...");
       setTimeout(startBot, 30000);
       return;
@@ -299,11 +348,15 @@ function startBot() {
     logger.success("Bot", `Logged in! Bot ID: ${botID}`);
     logger.info("Bot", `Prefix: "${config.prefix}" | Commands: ${[...new Set(commands.values())].length}`);
 
+    // Save fresh cookies locally + push to GitHub immediately after login
     try {
       const freshState = api.getAppState();
       if (Array.isArray(freshState) && freshState.length > 0) {
         fs.writeFileSync(APP_STATE_PATH, JSON.stringify(freshState, null, 2));
-        logger.success("AppState", "Session cookies refreshed and saved.");
+        logger.success("AppState", "Session cookies refreshed and saved locally.");
+        pushAppStateToGitHub(APP_STATE_PATH)
+          .then(() => logger.success("AppState", "Fresh cookies pushed to GitHub."))
+          .catch(e  => logger.warn("AppState", `GitHub push after login failed: ${e.message}`));
       }
     } catch (e) {
       logger.warn("AppState", "Could not save initial appstate:", e.message);
@@ -319,14 +372,17 @@ function startBot() {
         const freshState = api.getAppState();
         if (Array.isArray(freshState) && freshState.length > 0) {
           fs.writeFileSync(APP_STATE_PATH, JSON.stringify(freshState, null, 2));
-          logger.success("AppState", "Cookies updated after re-login.");
+          logger.success("AppState", "Cookies updated locally after re-login.");
+          pushAppStateToGitHub(APP_STATE_PATH)
+            .then(() => logger.success("AppState", "Re-login cookies pushed to GitHub."))
+            .catch(e  => logger.warn("AppState", `GitHub push after re-login failed: ${e.message}`));
         }
       } catch {}
     };
 
     api.onReLoginFailure = (e) => {
       logger.error("Bot", "Auto re-login failed permanently:", e.message);
-      setBotStatus("offline — re-login failed");
+      setBotStatus("offline \u2014 re-login failed");
       logger.info("Bot", "Restarting bot process in 60s...");
       setTimeout(() => { process.exit(1); }, 60000);
     };
@@ -353,7 +409,7 @@ function startBot() {
 }
 
 process.on("SIGINT",  () => { logger.info("Bot", "Shutting down..."); process.exit(0); });
-process.on("SIGTERM", () => { logger.info("Bot", "Received SIGTERM, shutting down..."); process.exit(0); });
+process.on("SIGTERM", () => { logger.info("Bot", "Shutting down..."); process.exit(0); });
 process.on("uncaughtException", (e) => {
   logger.error("Bot", "Uncaught exception:", e.message);
   logger.error("Bot", e.stack);
