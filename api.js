@@ -14,6 +14,9 @@ let startTime = Date.now();
 
 function setBotApi(api) { botApi = api; startTime = Date.now(); }
 
+let botStatus = "connecting"; // connecting | online | offline
+function setBotStatus(s) { botStatus = s; }
+
 function logActivity(msg) {
   activityLog.push({ time: Date.now(), message: msg });
   if (activityLog.length > 300) activityLog.shift();
