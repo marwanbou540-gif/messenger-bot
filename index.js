@@ -252,7 +252,6 @@ async function handleEvent(api, event) {
     if (locked && newName && newName !== locked) {
       try {
         await api.gcname(locked, threadID);
-        api.sendMessage(`🔒 تم استعادة اسم المجموعة إلى:\n«${locked}»\n\nالاسم مقفل ولا يمكن تغييره.`, threadID).catch(() => {});
       } catch (e) {
         logger.error("LockName", `Failed to revert group name: ${e.message}`);
       }
