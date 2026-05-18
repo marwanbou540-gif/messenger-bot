@@ -1,124 +1,116 @@
 "use strict";
 
+/**
+ * music.js — Audio command powered by musicEngine (production-grade).
+ *
+ * Engine features (handled transparently):
+ *   ✅ yt-dlp download via native Node.js HTTPS (no curl/wget)
+ *   ✅ Automatic redirect following
+ *   ✅ Binary integrity validation + auto-repair
+ *   ✅ iTunes 30s preview fallback when YouTube fails
+ *   ✅ Concurrency semaphore (max 2 parallel downloads)
+ *   ✅ Per-user cooldown (35s)
+ *   ✅ Automatic temp file cleanup
+ */
+
 const fs     = require("fs");
 const engine = require("../utils/musicEngine");
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-function buildCaption(track) {
-  const lines = ["🎵 " + track.title];
-  if (track.artist)   lines.push("🎤 " + track.artist);
-  if (track.duration) lines.push("⏱ "  + track.duration);
-  if (track.preview)  lines.push("ℹ️  معاينة 30 ثانية (لم يُعثر على النسخة الكاملة)");
-  return lines.join("\n");
-}
-
-// ── execute ───────────────────────────────────────────────────────────────────
 module.exports = {
   name: "music",
   aliases: ["song", "اغنية", "أغنية", "mp3"],
-  description: "البحث عن أغنية وإرسالها صوتياً.",
+  description: "البحث عن أغنية وإرسالها كاملة.",
   usage: "music [اسم الأغنية أو الفنان]",
   category: "Entertainment",
 
   async execute({ api, event, args }) {
     const { threadID, senderID } = event;
+    const query = args.join(" ").trim();
 
-    // ── diagnostics subcommand ────────────────────────────────────────────
-    if (args[0] === "diag" || args[0] === "status") {
+    // ── مساعد التشخيص (للمطور فقط) ─────────────────────────────────────────
+    if (query === "diag") {
       const d = engine.diagnostics();
       return api.sendMessage(
-        [
-          "🔧 حالة نظام الموسيقى",
-          "━━━━━━━━━━━━━━━━━━",
-          "yt-dlp : " + d.ytdlpPath,
-          "نشط   : " + d.concurrent + " تحميل",
-          "انتظار: " + d.queued    + " طلب",
-          "ملفات مؤقتة: " + d.tmpFiles,
-          "مجلد مؤقت: " + d.tmpDir,
-        ].join("\n"),
+        `🔧 تشخيص المحرك الموسيقي:\n` +
+        `• yt-dlp: ${d.ytdlpPath}\n` +
+        `• تحميلات جارية: ${d.concurrent}\n` +
+        `• في الانتظار: ${d.queued}\n` +
+        `• ملفات مؤقتة: ${d.tmpFiles}\n` +
+        `• مجلد مؤقت: ${d.tmpDir}`,
         threadID
       );
     }
 
-    // ── input validation ──────────────────────────────────────────────────
-    const query = args.join(" ").trim();
+    // ── تحقق من الطلب ───────────────────────────────────────────────────────
     if (!query) {
       return api.sendMessage(
-        [
-          "🎵 الاستخدام: -music [اسم الأغنية]",
-          "",
-          "أمثلة:",
-          "  -music GMFU",
-          "  -music محمد عبده",
-          "  -music The Weeknd Blinding Lights",
-          "  -music كلثوم أنا في انتظارك",
-        ].join("\n"),
+        "🎵 الاستخدام: -music [اسم الأغنية]\n" +
+        "أمثلة:\n" +
+        "  -music GMFU\n" +
+        "  -music محمد عبده\n" +
+        "  -music Blinding Lights The Weeknd",
         threadID
       );
     }
 
-    if (query.length > 200) {
-      return api.sendMessage("❌ الاستعلام طويل جداً (الحد الأقصى 200 حرف).", threadID);
-    }
-
-    // ── user cooldown ─────────────────────────────────────────────────────
-    const wait = engine.userCooldown(senderID);
-    if (wait > 0) {
-      return api.sendMessage(`⏳ انتظر ${wait} ثانية قبل طلب أغنية أخرى.`, threadID);
+    // ── cooldown ─────────────────────────────────────────────────────────────
+    const remaining = engine.userCooldown(senderID);
+    if (remaining > 0) {
+      return api.sendMessage(
+        `⏳ انتظر ${remaining} ثانية قبل طلب أغنية أخرى.`,
+        threadID
+      );
     }
     engine.markUser(senderID);
 
-    // ── notify ────────────────────────────────────────────────────────────
+    // ── بحث ─────────────────────────────────────────────────────────────────
     await api.sendMessage("🔍 جاري البحث عن: " + query + " ...", threadID).catch(() => {});
 
-    let audioPath = null;
+    let track;
     try {
-      // 1. search
-      const track = await engine.search(query);
-
-      // 2. notify user of match
-      await api.sendMessage(
-        [
-          "🎵 وجدتها: " + track.title,
-          track.artist   ? "🎤 " + track.artist   : "",
-          track.duration ? "⏱ "  + track.duration : "",
-          "⬇️ جاري التحميل...",
-          track.preview  ? "ℹ️  ستُرسَل معاينة 30 ثانية" : "",
-        ].filter(Boolean).join("\n"),
-        threadID
-      ).catch(() => {});
-
-      // 3. download
-      audioPath = await engine.download(track);
-
-      // 4. send
-      await Promise.race([
-        api.sendMessage(
-          { body: buildCaption(track), attachment: fs.createReadStream(audioPath) },
-          threadID
-        ),
-        new Promise((_, rej) =>
-          setTimeout(() => rej(new Error("send_timeout")), 90_000)
-        ),
-      ]);
-
+      track = await engine.search(query);
     } catch (e) {
-      const msg = _friendlyError(e.message);
+      return api.sendMessage("😕 " + e.message, threadID).catch(() => {});
+    }
+
+    // ── إبلاغ المستخدم بما وجده البوت ───────────────────────────────────────
+    const previewNote = track.preview ? "\n⚠️ معاينة 30 ثانية فقط (iTunes)" : "";
+    await api.sendMessage(
+      `🎵 وجدتها: ${track.title}` +
+      (track.artist   ? `\n🎤 ${track.artist}`   : "") +
+      (track.duration ? `\n⏱ ${track.duration}` : "") +
+      previewNote +
+      "\n⬇️ جاري التحميل...",
+      threadID
+    ).catch(() => {});
+
+    // ── تحميل ───────────────────────────────────────────────────────────────
+    let audioPath;
+    try {
+      audioPath = await engine.download(track);
+    } catch (e) {
+      return api.sendMessage("❌ فشل التحميل:\n" + e.message.slice(0, 300), threadID).catch(() => {});
+    }
+
+    // ── إرسال ────────────────────────────────────────────────────────────────
+    const caption =
+      "🎵 " + track.title +
+      (track.artist   ? "\n🎤 " + track.artist   : "") +
+      (track.duration ? "\n⏱ "  + track.duration : "") +
+      (track.preview  ? "\n⚠️ معاينة 30 ثانية (iTunes)" : "");
+
+    try {
+      await Promise.race([
+        api.sendMessage({ body: caption, attachment: fs.createReadStream(audioPath) }, threadID),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("send_timeout")), 90_000)),
+      ]);
+    } catch (e) {
+      const msg = e.message === "send_timeout"
+        ? "❌ انتهت مهلة الإرسال. جرّب أغنية أقصر."
+        : "❌ تعذّر إرسال الملف:\n" + e.message.slice(0, 200);
       await api.sendMessage(msg, threadID).catch(() => {});
     } finally {
-      if (audioPath) engine.safeDelete(audioPath);
+      engine.safeDelete(audioPath);
     }
   },
 };
-
-function _friendlyError(raw) {
-  if (!raw) return "❌ حدث خطأ غير معروف.";
-  if (raw.includes("send_timeout"))       return "❌ انتهت مهلة الإرسال. جرّب أغنية أقصر.";
-  if (raw.includes("قائمة الانتظار"))    return "❌ " + raw;
-  if (raw.includes("انتهت مهلة"))        return "❌ " + raw + "\nالشبكة بطيئة أو الخدمة مؤقتاً غير متاحة.";
-  if (raw.includes("لم يُعثر على نتائج")) return "😕 " + raw + "\nجرّب كتابة الاسم بشكل مختلف.";
-  if (raw.includes("كبير جداً"))         return "❌ " + raw + "\nحاول أغنية أقصر.";
-  if (raw.includes("فارغ"))              return "❌ الملف الصوتي فارغ. حاول مرة أخرى.";
-  if (raw.length > 250)                   return "❌ فشل التحميل.\n" + raw.slice(0, 200) + "...";
-  return "❌ فشل التحميل.\n" + raw;
-}
