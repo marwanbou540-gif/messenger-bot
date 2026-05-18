@@ -17,6 +17,27 @@ const autoReplies    = new Map();
 const groupStats     = new Map();
 const replyDelay     = { enabled: false, ms: 1500 };
 
+// FIX: Evict stale groups not seen in 30 days to prevent memory leak
+const STALE_GROUP_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function evictStaleGroups() {
+  const now     = Date.now();
+  let evicted   = 0;
+  for (const [tid, info] of groupsCache.entries()) {
+    const age = now - (info.lastSeen || 0);
+    if (age > STALE_GROUP_AGE_MS) {
+      groupsCache.delete(tid);
+      groupStats.delete(tid);
+      autoReplies.delete(tid);
+      lockedThreads.delete(tid);
+      mutedThreads.delete(tid);
+      evicted++;
+    }
+  }
+  if (evicted > 0) logger.debug("State", `Evicted ${evicted} stale group(s) from cache.`);
+  return evicted;
+}
+
 function _serialize() {
   return {
     version:     2,
@@ -34,6 +55,8 @@ function _serialize() {
 
 function save() {
   try {
+    // Evict stale groups before saving to keep state file lean
+    evictStaleGroups();
     const tmp = STATE_FILE + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(_serialize(), null, 2), "utf8");
     fs.renameSync(tmp, STATE_FILE);
@@ -56,16 +79,24 @@ function load() {
     for (const [tid, ar] of (data.autoReplies || []))       autoReplies.set(tid, { ...ar, lastSent: new Map() });
     if (data.replyDelay) { replyDelay.enabled = !!data.replyDelay.enabled; replyDelay.ms = data.replyDelay.ms || 1500; }
     logger.success("State", `Restored: ${lockedThreads.size} locked, ${mutedThreads.size} muted, ${groupsCache.size} groups.`);
+    // Run eviction on load to clean up any stale data from before fix
+    evictStaleGroups();
   } catch (e) {
     logger.warn("State", `Could not load state: ${e.message} — starting fresh.`);
   }
 }
 
+// Save every 2 minutes
 const _saveTimer = setInterval(save, 120000);
 _saveTimer.unref();
+
+// Evict stale groups every 6 hours
+const _evictTimer = setInterval(evictStaleGroups, 6 * 60 * 60 * 1000);
+_evictTimer.unref();
+
 process.on("SIGINT",  save);
 process.on("SIGTERM", save);
 process.on("exit",    save);
 load();
 
-module.exports = { lockedThreads, mutedThreads, groupsCache, activityLog, lockViolations, autoReplies, groupStats, replyDelay, save, load };
+module.exports = { lockedThreads, mutedThreads, groupsCache, activityLog, lockViolations, autoReplies, groupStats, replyDelay, save, load, evictStaleGroups };
