@@ -22,6 +22,7 @@ const { login }          = require("@neoaz07/nkxfca");
 const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats, replyDelay } = require("./state");
 const { setBotApi, setBotStatus, logActivity, logViolation, startApiServer } = require("./api");
 const pendingReplies = require("./utils/pendingReplies");
+const threadScanner  = require("./utils/threadScanner");
 
 // ── Config constants ──────────────────────────────────────────────────────────
 const APP_STATE_PATH = path.resolve(__dirname, config.appStatePath);
@@ -337,6 +338,7 @@ function startBot() {
 
     startAppStateSaver(api);
     setBotApi(api);
+    threadScanner.setApi(api);
     setBotStatus("online");
     nicknameLocks.setApi(api);
 
