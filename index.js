@@ -17,6 +17,7 @@ const nicknameLocks      = require("./utils/nicknameLocks");
 const health             = require("./utils/health");
 const diagnostics        = require("./utils/diagnostics");
 const { startupSelfCheck, schedule: scheduleMaintenance } = require("./utils/maintenance");
+const humanSimulator     = require("./utils/humanSimulator");
 const { login }          = require("@neoaz07/nkxfca");
 
 const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats, replyDelay } = require("./state");
@@ -27,7 +28,8 @@ const threadScanner  = require("./utils/threadScanner");
 // ── Config constants ──────────────────────────────────────────────────────────
 const APP_STATE_PATH = path.resolve(__dirname, config.appStatePath);
 const COMMANDS_DIR   = path.resolve(__dirname, "commands");
-const GH_TOKEN       = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "";
+// FIX: Use correct env var name (was GITHUB_PERSONAL_ACCESS_TOKEN)
+const GH_TOKEN       = process.env.GITHUB_TOKEN || "";
 const GH_REPO        = "marwanbou540-gif/messenger-bot";
 
 // ── Session manager ───────────────────────────────────────────────────────────
@@ -121,13 +123,37 @@ function fmt(template, vars) {
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
 }
 
+// ── MQTT reconnect watchdog ───────────────────────────────────────────────────
+let _lastEventAt    = Date.now();
+let _mqttErrorCount = 0;
+const MQTT_STALE_MS = 10 * 60 * 1000; // 10 minutes with no events → assume dead
+let _mqttWatchdog   = null;
+
+function startMqttWatchdog(reconnectFn) {
+  if (_mqttWatchdog) clearInterval(_mqttWatchdog);
+  _mqttErrorCount = 0;
+  _mqttWatchdog = setInterval(() => {
+    const staleness = Date.now() - _lastEventAt;
+    if (staleness > MQTT_STALE_MS) {
+      logger.error("MQTT", `No events for ${Math.round(staleness / 60000)}min — connection appears dead. Restarting...`);
+      diagnostics.recordError("MQTT", new Error("stale_connection"), { staleness });
+      clearInterval(_mqttWatchdog);
+      _mqttWatchdog = null;
+      reconnectFn();
+    }
+  }, 60000);
+  _mqttWatchdog.unref();
+}
+
 // ── Message handler ───────────────────────────────────────────────────────────
 async function handleMessage(api, event, commands) {
   const { type, body, threadID, senderID } = event;
-  if (type !== "message" || !body) return;
+  if (type !== "message") return;
 
   const botID = api.getCurrentUserID();
   if (senderID === botID) return;
+
+  _lastEventAt = Date.now();
 
   const isGroup =
     event.isGroup === true ||
@@ -146,13 +172,15 @@ async function handleMessage(api, event, commands) {
     stats.lastMessageAt = Date.now();
     groupStats.set(threadID, stats);
 
-    const ar = autoReplies.get(threadID);
-    if (ar && ar.enabled && ar.message && !body.startsWith(config.prefix)) {
-      const now     = Date.now();
-      const lastSent = ar.lastSent.get(senderID) || 0;
-      if (now - lastSent >= ar.cooldownMs) {
-        ar.lastSent.set(senderID, now);
-        api.sendMessage(ar.message, threadID).catch(() => {});
+    if (body) {
+      const ar = autoReplies.get(threadID);
+      if (ar && ar.enabled && ar.message && !body.startsWith(config.prefix)) {
+        const now      = Date.now();
+        const lastSent = ar.lastSent.get(senderID) || 0;
+        if (now - lastSent >= ar.cooldownMs) {
+          ar.lastSent.set(senderID, now);
+          api.sendMessage(ar.message, threadID).catch(() => {});
+        }
       }
     }
   }
@@ -172,27 +200,30 @@ async function handleMessage(api, event, commands) {
       cachedIsThreadAdmin = await isThreadAdmin(api, senderID, threadID);
       if (!cachedIsThreadAdmin) {
         const cached = groupsCache.get(threadID);
-        logViolation({ threadID, threadName: (cached && cached.name) || threadID, senderID, messagePreview: body.slice(0, 80) });
+        logViolation({ threadID, threadName: (cached && cached.name) || threadID, senderID, messagePreview: (body || "").slice(0, 80) });
         return;
       }
     } else { cachedIsThreadAdmin = true; }
   }
 
-
-  // ── Pending reply ─────────────────────────────────────────────────────────
+  // ── Pending reply (FIX: check BEFORE body guard, delete entry after success) ──
   const _pendingEntry = pendingReplies.get(senderID);
-  if (_pendingEntry && !body.startsWith(config.prefix)) {
+  if (_pendingEntry && (!body || !body.startsWith(config.prefix))) {
     try {
-      await _pendingEntry.handler(body.trim(), api, event);
+      await _pendingEntry.handler((body || "").trim(), api, event);
     } catch (e) {
       logger.error("PendingReply", `Handler error: ${e.message}`);
-      pendingReplies.del(senderID);
       api.sendMessage("❌ حدث خطأ في معالجة ردك. حاول مجدداً.", threadID).catch(() => {});
+    } finally {
+      // FIX: always clean up the pending entry after handling
+      pendingReplies.del(senderID);
     }
     return;
   }
 
-    if (!body.startsWith(config.prefix)) return;
+  // Guard: no text body beyond this point
+  if (!body) return;
+  if (!body.startsWith(config.prefix)) return;
 
   const trimmed = body.slice(config.prefix.length).trim();
   const args    = trimmed.split(/\s+/);
@@ -246,6 +277,8 @@ async function handleMessage(api, event, commands) {
 async function handleEvent(api, event) {
   const { type, threadID, logMessageData, logMessageType } = event;
   if (type !== "event") return;
+
+  _lastEventAt = Date.now();
 
   if (logMessageType === "log:thread-name") {
     const locked  = lockedNames.get(threadID);
@@ -301,7 +334,19 @@ function startBot() {
     logger.info("Bot", "Email/password credentials loaded for auto re-login.");
   }
 
+  // Login timeout: if login hangs > 2 min, abort and retry
+  let loginTimer = setTimeout(() => {
+    logger.error("Bot", "Login timed out after 2 minutes — forcing retry.");
+    diagnostics.recordError("Bot", new Error("login_timeout"));
+    _restartAttempt++;
+    const delay = Math.min(30000 * Math.pow(1.5, Math.min(_restartAttempt, 8)), MAX_RESTART_DELAY);
+    setBotStatus("offline — login timeout, retrying...");
+    setTimeout(startBot, delay);
+  }, 120000);
+
   login(credentials, config.loginOptions, async (err, api) => {
+    clearTimeout(loginTimer);
+
     if (err) {
       logger.error("Bot", "Login failed:", err.error || err.message || String(err));
       diagnostics.recordError("Bot", new Error(String(err.error || err.message || err)));
@@ -342,6 +387,12 @@ function startBot() {
     setBotStatus("online");
     nicknameLocks.setApi(api);
 
+    // Start human simulator if enabled
+    if (config.humanSimulator && config.humanSimulator.enabled) {
+      humanSimulator.start(api, config.humanSimulator);
+      logger.info("HumanSim", "Human simulator started.");
+    }
+
     // Re-login hooks
     api.onReLoginSuccess = async () => {
       logger.success("Bot", "Auto re-login succeeded.");
@@ -359,13 +410,33 @@ function startBot() {
       setTimeout(() => process.exit(1), 60000);
     };
 
+    // Start MQTT watchdog — if no events for 10min, reconnect
+    _lastEventAt = Date.now();
+    startMqttWatchdog(() => {
+      logger.info("Bot", "MQTT watchdog triggered reconnect.");
+      setBotStatus("offline — reconnecting...");
+      humanSimulator.stop();
+      setTimeout(startBot, 5000);
+    });
+
     api.listenMqtt(async (mqttErr, event) => {
       if (mqttErr) {
-        logger.warn("MQTT", `Listen error: ${mqttErr.message || mqttErr}`);
+        _mqttErrorCount++;
+        logger.warn("MQTT", `Listen error #${_mqttErrorCount}: ${mqttErr.message || mqttErr}`);
         diagnostics.recordError("MQTT", mqttErr instanceof Error ? mqttErr : new Error(String(mqttErr)));
+        // If we get 5 consecutive errors, force reconnect immediately
+        if (_mqttErrorCount >= 5) {
+          logger.error("MQTT", "5 consecutive errors — forcing reconnect.");
+          if (_mqttWatchdog) { clearInterval(_mqttWatchdog); _mqttWatchdog = null; }
+          setBotStatus("offline — reconnecting...");
+          humanSimulator.stop();
+          setTimeout(startBot, 10000);
+        }
         return;
       }
+      _mqttErrorCount = 0; // reset error counter on good event
       if (!event) return;
+      _lastEventAt = Date.now();
       try {
         if (event.type === "message")      await handleMessage(api, event, commands);
         else if (event.type === "event")   await handleEvent(api, event);
@@ -393,8 +464,8 @@ process.on("unhandledRejection", (reason) => {
   diagnostics.recordError("Process", reason instanceof Error ? reason : new Error(msg));
 });
 
-process.on("SIGINT",  () => { logger.info("Bot", "SIGINT — shutting down."); process.exit(0); });
-process.on("SIGTERM", () => { logger.info("Bot", "SIGTERM — shutting down."); process.exit(0); });
+process.on("SIGINT",  () => { humanSimulator.stop(); logger.info("Bot", "SIGINT — shutting down."); process.exit(0); });
+process.on("SIGTERM", () => { humanSimulator.stop(); logger.info("Bot", "SIGTERM — shutting down."); process.exit(0); });
 
 // ── Start everything ──────────────────────────────────────────────────────────
 startApiServer();
