@@ -1,15 +1,14 @@
 [phases.setup]
-nixPkgs = ["python3", "python3-pip", "ffmpeg", "git"]
+nixPkgs = ["python3", "python3-pip", "ffmpeg", "git", "curl"]
 
-[phases.build]
+[phases.install]
 cmds = ["npm install"]
 
-[buildConfig]
-env = { 
-  PYTHON = "python3",
-  PYTHON3 = "python3",
-  PYTHONUNBUFFERED = "1"
-}
+[phases.build]
+cmds = [
+  "pip3 install -q --no-cache-dir yt-dlp",
+  "yt-dlp --version"
+]
 
 [start]
 cmd = "node index.js"
