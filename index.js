@@ -21,6 +21,7 @@ const { login }          = require("@neoaz07/nkxfca");
 
 const { lockedThreads, mutedThreads, groupsCache, autoReplies, groupStats, replyDelay } = require("./state");
 const { setBotApi, setBotStatus, logActivity, logViolation, startApiServer } = require("./api");
+const pendingReplies = require("./utils/pendingReplies");
 
 // ── Config constants ──────────────────────────────────────────────────────────
 const APP_STATE_PATH = path.resolve(__dirname, config.appStatePath);
@@ -176,7 +177,21 @@ async function handleMessage(api, event, commands) {
     } else { cachedIsThreadAdmin = true; }
   }
 
-  if (!body.startsWith(config.prefix)) return;
+
+  // ── Pending reply ─────────────────────────────────────────────────────────
+  const _pendingEntry = pendingReplies.get(senderID);
+  if (_pendingEntry && !body.startsWith(config.prefix)) {
+    try {
+      await _pendingEntry.handler(body.trim(), api, event);
+    } catch (e) {
+      logger.error("PendingReply", `Handler error: ${e.message}`);
+      pendingReplies.del(senderID);
+      api.sendMessage("❌ حدث خطأ في معالجة ردك. حاول مجدداً.", threadID).catch(() => {});
+    }
+    return;
+  }
+
+    if (!body.startsWith(config.prefix)) return;
 
   const trimmed = body.slice(config.prefix.length).trim();
   const args    = trimmed.split(/\s+/);
