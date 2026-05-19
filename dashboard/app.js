@@ -30,7 +30,7 @@ function fmtMem(mb)  { return mb >= 1024 ? `${(mb/1024).toFixed(1)}GB` : `${mb}M
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 let _token = sessionStorage.getItem("token") || "";
-const _base = "";
+const _base = "https://messenger-bot-production-c98b.up.railway.app";
 
 function getToken()  { return _token; }
 function setToken(t) { _token = t; sessionStorage.setItem("token", t); }
@@ -162,7 +162,7 @@ const _wsHandlers = [];
 
 function connectWS() {
   if (_sse) _sse.close();
-  const url = `/stream${_token ? "?token=" + encodeURIComponent(_token) : ""}`;
+  const url = `https://messenger-bot-production-c98b.up.railway.app/stream${_token ? "?token=" + encodeURIComponent(_token) : ""}`;
   try {
     _sse = new EventSource(url);
     _sse.onmessage = e => {
