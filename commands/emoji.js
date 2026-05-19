@@ -14,14 +14,18 @@ module.exports = {
   async execute({ api, event, args }) {
     const emj = args[0];
     if (!emj) {
-      return api.sendMessage(`❌ Provide an emoji.\nUsage: ${config.prefix}emoji 🔥`, event.threadID);
+      return api.sendMessage("❌ Provide an emoji.\nUsage: " + config.prefix + "emoji 🔥", event.threadID);
+    }
+
+    if (typeof api.changeThreadEmoji !== "function") {
+      return api.sendMessage("❌ Emoji setting is not supported by the current API version.", event.threadID);
     }
 
     try {
       await api.changeThreadEmoji(emj, event.threadID);
-      api.sendMessage(`✅ Group emoji changed to ${emj}`, event.threadID);
+      api.sendMessage("✅ Group emoji changed to " + emj, event.threadID);
     } catch (e) {
-      api.sendMessage(`❌ Error: ${e.message}`, event.threadID);
+      api.sendMessage("❌ Error: " + e.message, event.threadID);
     }
   },
 };
