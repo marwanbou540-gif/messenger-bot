@@ -1,12 +1,12 @@
 [phases.setup]
-nixPkgs = ["python3", "python3-pip", "ffmpeg", "git", "curl"]
+nixPkgs = ["python3", "python3Packages.pip", "ffmpeg", "git", "curl"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm install --production"]
 
 [phases.build]
 cmds = [
-  "pip3 install -q --no-cache-dir yt-dlp",
+  "python3 -m pip install -q --no-cache-dir yt-dlp",
   "yt-dlp --version"
 ]
 
