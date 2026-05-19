@@ -29,7 +29,7 @@ const threadScanner  = require("./utils/threadScanner");
 const APP_STATE_PATH = path.resolve(__dirname, config.appStatePath);
 const COMMANDS_DIR   = path.resolve(__dirname, "commands");
 // FIX: Use correct env var name (was GITHUB_PERSONAL_ACCESS_TOKEN)
-const GH_TOKEN       = process.env.GITHUB_TOKEN || "";
+const GH_TOKEN       = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "";
 const GH_REPO        = "marwanbou540-gif/messenger-bot";
 
 // ── Session manager ───────────────────────────────────────────────────────────
@@ -206,17 +206,19 @@ async function handleMessage(api, event, commands) {
     } else { cachedIsThreadAdmin = true; }
   }
 
-  // ── Pending reply (FIX: check BEFORE body guard, delete entry after success) ──
+  // ── Pending reply — handler can return pendingReplies.KEEP to stay alive ──
   const _pendingEntry = pendingReplies.get(senderID);
   if (_pendingEntry && (!body || !body.startsWith(config.prefix))) {
+    let _keepAlive = false;
     try {
-      await _pendingEntry.handler((body || "").trim(), api, event);
+      const _result = await _pendingEntry.handler((body || "").trim(), api, event);
+      _keepAlive = (_result === pendingReplies.KEEP);
     } catch (e) {
       logger.error("PendingReply", `Handler error: ${e.message}`);
       api.sendMessage("❌ حدث خطأ في معالجة ردك. حاول مجدداً.", threadID).catch(() => {});
     } finally {
-      // FIX: always clean up the pending entry after handling
-      pendingReplies.del(senderID);
+      // Only delete if handler did NOT return KEEP (e.g. paginated menus)
+      if (!_keepAlive) pendingReplies.del(senderID);
     }
     return;
   }
