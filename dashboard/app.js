@@ -156,25 +156,23 @@ async function pollTopbar() {
   } catch {}
 }
 
-// ── WebSocket live feed ───────────────────────────────────────────────────────
-let _ws = null;
+// ── SSE live feed ─────────────────────────────────────────────────────────────
+let _sse = null;
 const _wsHandlers = [];
 
 function connectWS() {
-  if (_ws) _ws.close();
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${proto}//${location.host}/stream${_token ? "?token=" + encodeURIComponent(_token) : ""}`;
+  if (_sse) _sse.close();
+  const url = `/stream${_token ? "?token=" + encodeURIComponent(_token) : ""}`;
   try {
-    _ws = new WebSocket(url);
-    _ws.onmessage = e => {
+    _sse = new EventSource(url);
+    _sse.onmessage = e => {
       try { const d = JSON.parse(e.data); for (const h of _wsHandlers) h(d); } catch {}
     };
-    _ws.onerror = () => {};
-    _ws.onclose = () => { setTimeout(() => { if (_token) connectWS(); }, 5000); };
+    _sse.onerror = () => { setTimeout(() => { if (_token) connectWS(); }, 5000); };
   } catch {}
 }
 
-function disconnectWS() { if (_ws) { _ws.close(); _ws = null; } }
+function disconnectWS() { if (_sse) { _sse.close(); _sse = null; } }
 
 function subscribeWS(fn) {
   _wsHandlers.push(fn);
