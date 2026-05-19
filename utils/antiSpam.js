@@ -30,12 +30,14 @@ function clearCooldown(userID, cmd) {
   }
 }
 
-// Purge expired entries every 2 minutes to prevent memory growth
+// Purge all expired entries every 5 minutes (was 2 min with wrong logic).
+// Use a generous retention window so entries are kept long enough to be useful.
 setInterval(() => {
-  const now = Date.now();
+  const now    = Date.now();
+  const maxAge = Math.max(_cooldownMs * 2, 120_000); // at least 2× cooldown, min 2 min
   for (const [k, ts] of cooldowns) {
-    if (now - ts >= _cooldownMs) cooldowns.delete(k);
+    if (now - ts >= maxAge) cooldowns.delete(k);
   }
-}, 120000).unref();
+}, 300_000).unref();
 
 module.exports = { configure, isOnCooldown, setCooldown, getRemainingCooldown, clearCooldown };
