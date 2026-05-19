@@ -17,7 +17,17 @@ module.exports = {
     }
 
     try {
-      const info = await api.getUserInfoV2(targetID);
+      let info = null;
+
+      // Try getUserInfoV2 first (richer data), fall back to getUserInfo
+      if (typeof api.getUserInfoV2 === "function") {
+        try { info = await api.getUserInfoV2(targetID); } catch {}
+      }
+      if (!info && typeof api.getUserInfo === "function") {
+        const bulk = await api.getUserInfo([targetID]);
+        info = bulk ? bulk[targetID] : null;
+      }
+
       if (!info) return api.sendMessage("❌ User not found.", event.threadID);
 
       const name     = info.name || "Unknown";
@@ -28,19 +38,19 @@ module.exports = {
       const isFriend = info.isFriend      ? "👥 Yes" : "No";
 
       const msg =
-        `👤 User Profile\n` +
-        `─────────────\n` +
-        `• Name     : ${name}\n` +
-        `• ID       : ${targetID}\n` +
-        `• Gender   : ${gender}\n` +
-        `• Friends  : ${friends}\n` +
-        `• Mutuals  : ${mutuals}\n` +
-        `• Verified : ${verified}\n` +
-        `• Friend   : ${isFriend}`;
+        "👤 User Profile\n" +
+        "─────────────\n" +
+        "• Name     : " + name    + "\n" +
+        "• ID       : " + targetID + "\n" +
+        "• Gender   : " + gender   + "\n" +
+        "• Friends  : " + friends  + "\n" +
+        "• Mutuals  : " + mutuals  + "\n" +
+        "• Verified : " + verified + "\n" +
+        "• Friend   : " + isFriend;
 
       api.sendMessage(msg, event.threadID);
     } catch (e) {
-      api.sendMessage(`❌ Error: ${e.message}`, event.threadID);
+      api.sendMessage("❌ Error: " + e.message, event.threadID);
     }
   },
 };
