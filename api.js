@@ -493,6 +493,215 @@ function createApiServer() {
   app.get("/activity",   (req, res) => res.json(activityLog.slice(-100).reverse()));
   app.get("/violations", (req, res) => res.json(lockViolations.slice(-100).reverse()));
 
+
+  // ── Reconnect ────────────────────────────────────────────────────────────
+  app.post('/reconnect', (req, res) => {
+    res.json({ success: true, message: 'Reconnecting...' });
+    logActivitySSE('Reconnect triggered via dashboard');
+    setTimeout(() => process.exit(0), 1500);
+  });
+
+  // ── Session aliases ───────────────────────────────────────────────────────
+  app.get('/session', (req, res) => {
+    const appStatePath = path.resolve(__dirname, config.appStatePath);
+    try {
+      const stat = fs.statSync(appStatePath);
+      const data = JSON.parse(fs.readFileSync(appStatePath, 'utf8'));
+      res.json({ valid: true, lastSaved: stat.mtimeMs, size: stat.size, cookieCount: Array.isArray(data) ? data.length : 0 });
+    } catch { res.json({ valid: false, lastSaved: null, size: 0 }); }
+  });
+
+  app.post('/session/upload', async (req, res) => {
+    const raw = req.body.appstate || req.body.content;
+    if (!raw) return res.status(400).json({ error: 'appstate required' });
+    try {
+      const data = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw));
+      if (!Array.isArray(data) || !data.length) return res.status(400).json({ error: 'Invalid appstate' });
+      fs.writeFileSync(path.resolve(__dirname, config.appStatePath), JSON.stringify(data, null, 2));
+      logActivitySSE('AppState uploaded via dashboard');
+      res.json({ success: true, cookieCount: data.length });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.post('/session/refresh', (req, res) => {
+    try {
+      if (botApi) {
+        const state = botApi.getAppState();
+        if (Array.isArray(state) && state.length > 0)
+          fs.writeFileSync(path.resolve(__dirname, config.appStatePath), JSON.stringify(state, null, 2));
+      }
+      logActivitySSE('Session refreshed via dashboard');
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/session', (req, res) => {
+    try {
+      const p = path.resolve(__dirname, config.appStatePath);
+      if (fs.existsSync(p)) fs.writeFileSync(p, '[]');
+      logActivitySSE('Session cleared via dashboard');
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Config (full save) ────────────────────────────────────────────────────
+  app.post('/config', (req, res) => {
+    const allowed = ['features', 'humanSimulator', 'loginOptions', 'messages', 'bot'];
+    for (const k of allowed) { if (k in req.body) Object.assign(config[k], req.body[k]); }
+    logActivitySSE('Config updated via dashboard');
+    res.json({ success: true });
+  });
+
+  // ── Features ──────────────────────────────────────────────────────────────
+  app.get('/features', (req, res) => res.json(config.features || {}));
+
+  app.post('/features', (req, res) => {
+    Object.assign(config.features, req.body);
+    logActivitySSE('Features updated via dashboard');
+    res.json({ success: true });
+  });
+
+  // ── Security ──────────────────────────────────────────────────────────────
+  const _secPath = path.join(__dirname, 'data', 'security.json');
+  function _loadSec() { try { return JSON.parse(fs.readFileSync(_secPath,'utf8')); } catch { return {}; } }
+  function _saveSec(d) { fs.mkdirSync(path.dirname(_secPath),{recursive:true}); fs.writeFileSync(_secPath,JSON.stringify(d,null,2)); }
+
+  app.get('/security', (req, res) => {
+    const sec = _loadSec();
+    res.json({
+      antiSpamCooldownMs:      config.features?.antiSpamCooldownMs ?? 3000,
+      maxRequestsPerMinute:    sec.maxRequestsPerMinute   ?? 40,
+      requestCooldownMs:       sec.requestCooldownMs      ?? 60000,
+      maxConcurrentRequests:   sec.maxConcurrentRequests  ?? 5,
+      bannedWords:             sec.bannedWords            ?? [],
+    });
+  });
+
+  app.post('/security', (req, res) => {
+    const sec = _loadSec();
+    if (req.body.antiSpamCooldownMs) { config.features = config.features || {}; config.features.antiSpamCooldownMs = parseInt(req.body.antiSpamCooldownMs); }
+    if (req.body.maxRequestsPerMinute)  sec.maxRequestsPerMinute  = parseInt(req.body.maxRequestsPerMinute);
+    if (req.body.requestCooldownMs)     sec.requestCooldownMs     = parseInt(req.body.requestCooldownMs);
+    if (req.body.maxConcurrentRequests) sec.maxConcurrentRequests = parseInt(req.body.maxConcurrentRequests);
+    if (Array.isArray(req.body.bannedWords)) sec.bannedWords = req.body.bannedWords;
+    _saveSec(sec);
+    logActivitySSE('Security settings updated via dashboard');
+    res.json({ success: true });
+  });
+
+  // ── Bans ──────────────────────────────────────────────────────────────────
+  const _bansPath = path.join(__dirname, 'data', 'bans.json');
+  function _loadBans() { try { return JSON.parse(fs.readFileSync(_bansPath,'utf8')); } catch { return []; } }
+  function _saveBans(d) { fs.mkdirSync(path.dirname(_bansPath),{recursive:true}); fs.writeFileSync(_bansPath,JSON.stringify(d,null,2)); }
+
+  app.get('/bans', (req, res) => res.json(_loadBans()));
+
+  app.post('/bans', (req, res) => {
+    const uid = sanitize(req.body.uid, 50);
+    if (!uid) return res.status(400).json({ error: 'uid required' });
+    const bans = _loadBans();
+    if (bans.find(b => b.uid === uid)) return res.json({ success: true, alreadyBanned: true });
+    bans.push({ uid, reason: sanitize(req.body.reason || '', 200), bannedAt: Date.now() });
+    _saveBans(bans);
+    logActivitySSE(`User ${uid} banned via dashboard`);
+    res.json({ success: true });
+  });
+
+  app.delete('/bans/:uid', (req, res) => {
+    const bans = _loadBans().filter(b => b.uid !== req.params.uid);
+    _saveBans(bans);
+    logActivitySSE(`User ${req.params.uid} unbanned via dashboard`);
+    res.json({ success: true });
+  });
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  app.get('/audit', (req, res) => {
+    const offset = parseInt(req.query.offset) || 0;
+    const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+    const all = [...activityLog].reverse().map(a => ({ time: a.time, action: 'activity', actor: 'bot', detail: a.message, level: 'info' }));
+    res.json(all.slice(offset, offset + limit));
+  });
+
+  // ── Jobs (active background tasks) ───────────────────────────────────────
+  const _activeJobs = new Map();
+  app.get('/jobs', (req, res) => {
+    const jobs = [];
+    for (const [id, j] of _activeJobs) jobs.push({ id, ...j });
+    res.json(jobs);
+  });
+  app.delete('/jobs/:id', (req, res) => {
+    const j = _activeJobs.get(req.params.id);
+    if (!j) return res.status(404).json({ error: 'Not found' });
+    if (j.timer) clearTimeout(j.timer);
+    _activeJobs.delete(req.params.id);
+    res.json({ success: true });
+  });
+
+  // ── Allowlist ─────────────────────────────────────────────────────────────
+  const _alPath = path.join(__dirname, 'data', 'allowlist.json');
+  function _loadAl() { try { return JSON.parse(fs.readFileSync(_alPath,'utf8')); } catch { return { mode: 'off', list: [] }; } }
+  function _saveAl(d) { fs.mkdirSync(path.dirname(_alPath),{recursive:true}); fs.writeFileSync(_alPath,JSON.stringify(d,null,2)); }
+
+  app.get('/allowlist', (req, res) => res.json(_loadAl()));
+  app.post('/allowlist/mode', (req, res) => {
+    const d = _loadAl(); d.mode = req.body.mode || 'off'; _saveAl(d);
+    res.json({ success: true });
+  });
+  app.post('/allowlist/add', (req, res) => {
+    const uid = sanitize(req.body.uid, 50);
+    if (!uid) return res.status(400).json({ error: 'uid required' });
+    const d = _loadAl();
+    if (!d.list.includes(uid)) d.list.push(uid);
+    _saveAl(d); res.json({ success: true });
+  });
+  app.post('/allowlist/remove', (req, res) => {
+    const d = _loadAl();
+    d.list = d.list.filter(x => x !== req.body.uid);
+    _saveAl(d); res.json({ success: true });
+  });
+
+  // ── Files ─────────────────────────────────────────────────────────────────
+  const _editableFiles = [
+    { name: 'config.json',    path: 'config.json',    icon: '⚙️' },
+    { name: 'index.js',       path: 'index.js',       icon: '🚀' },
+    { name: 'api.js',         path: 'api.js',         icon: '🔌' },
+    { name: 'state.js',       path: 'state.js',       icon: '💾' },
+    { name: 'package.json',   path: 'package.json',   icon: '📦' },
+  ];
+
+  app.get('/files', (req, res) => res.json(_editableFiles));
+
+  app.get('/files/:filePath', (req, res) => {
+    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    const abs  = path.resolve(__dirname, safe);
+    if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
+    try { res.json({ content: fs.readFileSync(abs, 'utf8') }); }
+    catch { res.status(404).json({ error: 'File not found' }); }
+  });
+
+  app.post('/files/:filePath', (req, res) => {
+    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    const abs  = path.resolve(__dirname, safe);
+    if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
+    if (typeof req.body.content !== 'string') return res.status(400).json({ error: 'content required' });
+    try {
+      fs.writeFileSync(abs, req.body.content, 'utf8');
+      logActivitySSE(`File ${safe} saved via dashboard`);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/files/:filePath', (req, res) => {
+    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    const abs  = path.resolve(__dirname, safe);
+    if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      fs.unlinkSync(abs);
+      logActivitySSE(`File ${safe} deleted via dashboard`);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   return app;
 }
 
