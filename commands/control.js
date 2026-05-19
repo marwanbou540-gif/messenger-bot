@@ -389,12 +389,13 @@ async function handleRemote(api, event) {
       if (ch === ">" || ch === "تالي") {
         const total = Math.ceil(groups.length / PAGE_SIZE);
         if (page < total - 1) page++;
-        return _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
-        // keep pending alive
+        await _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
+        return pendingReplies.KEEP; // keep pagination alive
       }
       if (ch === "<" || ch === "سابق") {
         if (page > 0) page--;
-        return _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
+        await _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
+        return pendingReplies.KEEP; // keep pagination alive
       }
 
       // Cancel
@@ -406,12 +407,13 @@ async function handleRemote(api, event) {
       // Group selection
       const idx = parseInt(ch) - 1;
       if (isNaN(idx) || idx < 0 || idx >= groups.length) {
-        return _api.sendMessage(
+        await _api.sendMessage(
           "❌ رقم غير صحيح. اختر من 1 إلى " + groups.length +
           (Math.ceil(groups.length / PAGE_SIZE) > 1 ? "، أو < / > للتنقل" : "") +
           "، أو 0 للإلغاء.",
           rTID
         );
+        return pendingReplies.KEEP; // keep pagination alive on invalid input
       }
 
       const target = groups[idx];
