@@ -448,9 +448,9 @@ function createApiServer() {
       const data = JSON.parse(typeof content === "string" ? content : JSON.stringify(content));
       if (!Array.isArray(data) || data.length === 0) return res.status(400).json({ error: "Invalid appstate format" });
       const appStatePath = path.resolve(__dirname, config.appStatePath);
-      // FIX: Use correct env var name
       const { SessionManager } = require("./utils/session");
-      const sm = new SessionManager(appStatePath, process.env.GITHUB_TOKEN || "", "marwanbou540-gif/messenger-bot");
+      // FIX: correct env var name — was GITHUB_TOKEN, must be GITHUB_PERSONAL_ACCESS_TOKEN
+      const sm = new SessionManager(appStatePath, process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "", "marwanbou540-gif/messenger-bot");
       const ok = await sm.saveAndPush(data);
       if (!ok) return res.status(500).json({ error: "Failed to save state" });
       logActivitySSE("AppState uploaded and pushed via dashboard");
@@ -476,10 +476,10 @@ function createApiServer() {
         const state = botApi.getAppState();
         if (Array.isArray(state) && state.length > 0) {
           const { SessionManager } = require("./utils/session");
-          // FIX: Use correct env var name (was GITHUB_PERSONAL_ACCESS_TOKEN)
+          // FIX: correct env var name — was GITHUB_TOKEN, must be GITHUB_PERSONAL_ACCESS_TOKEN
           const s = new SessionManager(
             path.resolve(__dirname, config.appStatePath),
-            process.env.GITHUB_TOKEN || "",
+            process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "",
             "marwanbou540-gif/messenger-bot"
           );
           s.save(state);
@@ -493,8 +493,7 @@ function createApiServer() {
   app.get("/activity",   (req, res) => res.json(activityLog.slice(-100).reverse()));
   app.get("/violations", (req, res) => res.json(lockViolations.slice(-100).reverse()));
 
-
-  // ── Reconnect ────────────────────────────────────────────────────────────
+  // ── Reconnect ─────────────────────────────────────────────────────────────
   app.post('/reconnect', (req, res) => {
     res.json({ success: true, message: 'Reconnecting...' });
     logActivitySSE('Reconnect triggered via dashboard');
@@ -660,7 +659,9 @@ function createApiServer() {
     _saveAl(d); res.json({ success: true });
   });
 
-  // ── Files ─────────────────────────────────────────────────────────────────
+  // ── Files (READ/WRITE — sandboxed to project root) ────────────────────────
+  // SECURITY FIX: was replace(/../g,'') which matched ANY two chars — now correctly
+  // strips only ".." sequences before path.resolve + startsWith guard.
   const _editableFiles = [
     { name: 'config.json',    path: 'config.json',    icon: '⚙️' },
     { name: 'index.js',       path: 'index.js',       icon: '🚀' },
@@ -672,7 +673,8 @@ function createApiServer() {
   app.get('/files', (req, res) => res.json(_editableFiles));
 
   app.get('/files/:filePath', (req, res) => {
-    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    // FIX: was /../g (matches any 2 chars) — must be /\.\./g to strip only ".."
+    const safe = sanitize(req.params.filePath, 100).replace(/\.\./g, '');
     const abs  = path.resolve(__dirname, safe);
     if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
     try { res.json({ content: fs.readFileSync(abs, 'utf8') }); }
@@ -680,7 +682,8 @@ function createApiServer() {
   });
 
   app.post('/files/:filePath', (req, res) => {
-    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    // FIX: was /../g (matches any 2 chars) — must be /\.\./g to strip only ".."
+    const safe = sanitize(req.params.filePath, 100).replace(/\.\./g, '');
     const abs  = path.resolve(__dirname, safe);
     if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
     if (typeof req.body.content !== 'string') return res.status(400).json({ error: 'content required' });
@@ -692,7 +695,8 @@ function createApiServer() {
   });
 
   app.delete('/files/:filePath', (req, res) => {
-    const safe = sanitize(req.params.filePath, 100).replace(/../g, '');
+    // FIX: was /../g (matches any 2 chars) — must be /\.\./g to strip only ".."
+    const safe = sanitize(req.params.filePath, 100).replace(/\.\./g, '');
     const abs  = path.resolve(__dirname, safe);
     if (!abs.startsWith(__dirname)) return res.status(403).json({ error: 'Forbidden' });
     try {
