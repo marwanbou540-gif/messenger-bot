@@ -3,54 +3,37 @@
 /**
  * pendingReplies — stores one pending interactive step per sender.
  *
- * Each entry:  { handler: async (input, api, event) => void, expiresAt: number }
+ * Each entry: { handler: async (input, api, event) => any, expiresAt: number }
  *
- * The handler is set by a command and consumed by the main message loop.
- * Entries expire automatically after TTL_MS to avoid memory leaks.
+ * Special return value:
+ *   Return `pendingReplies.KEEP` from a handler to keep the entry alive
+ *   (e.g. for paginated menus that must handle multiple inputs).
  */
 
+const KEEP   = Symbol("pendingReplies.KEEP");
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
 const _pending = new Map();
 
-/**
- * Register a pending handler for a sender.
- * @param {string} senderID
- * @param {{ handler: Function }} entry
- */
+// Purge expired entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of _pending) {
+    if (entry.expiresAt < now) _pending.delete(id);
+  }
+}, 120_000).unref();
+
 function set(senderID, entry) {
   _pending.set(senderID, { ...entry, expiresAt: Date.now() + TTL_MS });
 }
 
-/**
- * Retrieve a pending entry (returns null if missing or expired).
- * @param {string} senderID
- * @returns {{ handler: Function } | null}
- */
 function get(senderID) {
   const entry = _pending.get(senderID);
   if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    _pending.delete(senderID);
-    return null;
-  }
+  if (entry.expiresAt < Date.now()) { _pending.delete(senderID); return null; }
   return entry;
 }
 
-/**
- * Remove a pending entry.
- * @param {string} senderID
- */
-function del(senderID) {
-  _pending.delete(senderID);
-}
+function del(senderID) { _pending.delete(senderID); }
+function has(senderID) { return get(senderID) !== null; }
 
-/**
- * Check whether a sender has a pending entry.
- * @param {string} senderID
- * @returns {boolean}
- */
-function has(senderID) {
-  return get(senderID) !== null;
-}
-
-module.exports = { set, get, del, has };
+module.exports = { set, get, del, has, KEEP };
