@@ -6,16 +6,17 @@ const https = require("https");
 const logger = require("./logger");
 
 const MAX_BACKUPS = 3;
-const GH_TIMEOUT = 15000;
+const GH_TIMEOUT  = 15_000;
 
 class SessionManager {
   constructor(filePath, ghToken, ghRepo) {
-    this.filePath = path.resolve(filePath);
-    this.dir      = path.dirname(this.filePath);
-    this.ghToken  = ghToken || "";
-    this.ghRepo   = ghRepo  || "";
-    this._ghSha   = "";
-    this._pushing = false;
+    this.filePath    = path.resolve(filePath);
+    this.dir         = path.dirname(this.filePath);
+    this.ghToken     = ghToken || "";
+    this.ghRepo      = ghRepo  || "";
+    this._ghSha      = "";
+    this._pushing    = false;
+    this._pendingPush = false; // queued push while one is in flight
   }
 
   _backupPath(n) {
@@ -23,11 +24,11 @@ class SessionManager {
   }
 
   _validate(data) {
-    if (!Array.isArray(data))          return { valid: false, reason: "not an array" };
-    if (data.length === 0)             return { valid: false, reason: "empty array" };
-    if (data[0] && data[0]._README)    return { valid: false, reason: "placeholder data" };
+    if (!Array.isArray(data))         return { valid: false, reason: "not an array" };
+    if (data.length === 0)            return { valid: false, reason: "empty array" };
+    if (data[0] && data[0]._README)   return { valid: false, reason: "placeholder data" };
     if (!data.some(c => c && c.key && c.value !== undefined))
-                                       return { valid: false, reason: "no valid cookie entries" };
+                                      return { valid: false, reason: "no valid cookie entries" };
     return { valid: true };
   }
 
@@ -92,8 +93,15 @@ class SessionManager {
 
   async pushToGitHub(attempt = 0) {
     if (!this.ghToken || !this.ghRepo) return;
-    if (this._pushing) return;
     if (!fs.existsSync(this.filePath)) return;
+
+    // If a push is already in flight, queue one more and bail.
+    // The in-flight push will trigger another push when it finishes.
+    if (this._pushing) {
+      this._pendingPush = true;
+      return;
+    }
+
     this._pushing = true;
     const MAX_RETRIES = 3;
     try {
@@ -114,10 +122,10 @@ class SessionManager {
       if (result.content && result.content.sha) this._ghSha = result.content.sha;
       logger.debug("Session", "Cookies pushed to GitHub successfully.");
     } catch (e) {
-      this._ghSha = "";
+      this._ghSha = ""; // invalidate SHA so next push re-fetches it
       if (attempt < MAX_RETRIES) {
-        const delay = Math.pow(2, attempt) * 5000;
-        logger.warn("Session", `GitHub push failed (attempt ${attempt + 1}/${MAX_RETRIES}): ${e.message}. Retrying in ${delay / 1000}s...`);
+        const delay = Math.pow(2, attempt) * 5_000;
+        logger.warn("Session", `GitHub push failed (attempt ${attempt + 1}/${MAX_RETRIES}): ${e.message}. Retry in ${delay / 1000}s...`);
         this._pushing = false;
         await new Promise(r => setTimeout(r, delay));
         return this.pushToGitHub(attempt + 1);
@@ -125,6 +133,11 @@ class SessionManager {
       logger.warn("Session", `GitHub push permanently failed: ${e.message}`);
     } finally {
       this._pushing = false;
+      // Drain queued push (e.g. session refreshed while previous push was in-flight)
+      if (this._pendingPush) {
+        this._pendingPush = false;
+        setTimeout(() => this.pushToGitHub(), 2_000);
+      }
     }
   }
 
