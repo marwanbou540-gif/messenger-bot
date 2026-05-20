@@ -12,6 +12,7 @@ const config    = validateConfig(rawConfig);
 // ── Core utils ─────────────────────────────────────────────────────────────────
 const { SessionManager } = require("./utils/session");
 const antiSpam           = require("./utils/antiSpam");
+const banManager         = require("./utils/banManager");
 const { lockedNames }    = require("./utils/lockedNames");
 const nicknameLocks      = require("./utils/nicknameLocks");
 const health             = require("./utils/health");
@@ -132,6 +133,12 @@ async function handleMessage(api, event, commands) {
 
   const botID = api.getCurrentUserID();
   if (senderID === botID) return;
+
+  // Ban check — silently ignore globally banned users
+  if (banManager.isBanned(senderID)) return;
+
+  // Abuse check — temporarily block spam abusers
+  if (config.features.antiSpam && antiSpam.isAbuser(senderID)) return;
 
   _lastEventAt = Date.now();
 
