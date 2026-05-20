@@ -8,6 +8,7 @@ cmds = ["npm install --production"]
 cmds = [
   "curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp",
   "chmod +x /usr/local/bin/yt-dlp",
+  "yt-dlp -U --no-colors 2>&1 || true",
   "yt-dlp --version"
 ]
 
