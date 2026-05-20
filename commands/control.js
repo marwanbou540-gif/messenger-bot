@@ -8,37 +8,26 @@ const pendingReplies     = require("../utils/pendingReplies");
 const threadScanner      = require("../utils/threadScanner");
 const config             = require("../config.json");
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function isAdmin(id) {
-  return (config.bot.adminIDs || []).includes(String(id));
-}
+function isAdmin(id) { return (config.bot.adminIDs || []).includes(String(id)); }
 
 function muteStatus(threadID) {
   const ex = mutedThreads.get(threadID);
   if (!ex || Date.now() >= ex) return "غير مكتوم";
   return "مكتوم (متبقي " + Math.ceil((ex - Date.now()) / 60000) + " دق)";
 }
-
 function arStatus(threadID) {
   const ar = autoReplies.get(threadID);
   if (!ar || !ar.message) return "غير مفعّل";
-  return ar.enabled
-    ? "مفعّل — كل " + Math.round(ar.cooldownMs / 60000) + " دق/مستخدم"
-    : "معطّل";
+  return ar.enabled ? "مفعّل — كل " + Math.round(ar.cooldownMs / 60000) + " دق/مستخدم" : "معطّل";
 }
-
 function lnStatus(threadID) {
   const n = lockedNames.get(threadID);
   return n ? "مقفل: «" + n + "»" : "غير مقفل";
 }
 
-// ── Local control panel ───────────────────────────────────────────────────────
-
 async function showPanel(api, threadID) {
   const cached = groupsCache.get(threadID) || {};
   const stats  = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
-
   let name = cached.name || threadID, members = cached.memberCount || "?", admins = "?";
   try {
     const info = await api.getThreadInfo(threadID);
@@ -47,13 +36,9 @@ async function showPanel(api, threadID) {
     admins  = (info.adminIDs || []).length;
     groupsCache.set(threadID, { ...cached, name, memberCount: members });
   } catch {}
-
   const lastActive = stats.lastMessageAt
-    ? new Date(stats.lastMessageAt).toLocaleString("ar-SA", {
-        hour: "2-digit", minute: "2-digit", day: "numeric", month: "numeric",
-      })
+    ? new Date(stats.lastMessageAt).toLocaleString("ar-SA", { hour:"2-digit", minute:"2-digit", day:"numeric", month:"numeric" })
     : "لا يوجد";
-
   return api.sendMessage([
     "┌─ 🎛️  لوحة التحكم ──────────────────┐",
     "│",
@@ -84,8 +69,14 @@ async function showPanel(api, threadID) {
   ].join("\n"), threadID);
 }
 
-// ── Remote: action menu for a single target group ─────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// showRemoteMenu — action menu for one target group
+//
+// KEY FIX: Any branch that registers a NEW pendingReplies sub-handler must
+// return pendingReplies.KEEP so index.js's finally block does NOT delete
+// that sub-handler.  Missing KEEP was the root cause of all menu options
+// silently failing after the first selection.
+// ─────────────────────────────────────────────────────────────────────────────
 async function showRemoteMenu(api, replyTID, senderID, target) {
   const isLocked    = lockedThreads.has(target.threadID);
   const muteExp     = mutedThreads.get(target.threadID);
@@ -94,7 +85,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
   const ar          = autoReplies.get(target.threadID);
   const hasAR       = !!(ar && ar.message);
 
-  const menu = [
+  await api.sendMessage([
     "🎛️ التحكم عن بُعد",
     "━━━━━━━━━━━━━━━━━━━━━━",
     "📌 " + target.name,
@@ -107,11 +98,11 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
     "  🤖 رد تلقائي: " + (hasAR ? (ar.enabled ? "مفعّل" : "معطّل") : "لا يوجد"),
     "",
     "اختر أمراً:",
-    isLocked  ? "1. 🔓 فتح قفل الرسائل"    : "1. 🔒 قفل الرسائل",
-    isMuted   ? "2. 🔊 رفع الكتم"           : "2. 🔇 كتم (ستُسأل عن المدة)",
+    isLocked  ? "1. 🔓 فتح قفل الرسائل"  : "1. 🔒 قفل الرسائل",
+    isMuted   ? "2. 🔊 رفع الكتم"         : "2. 🔇 كتم (ستُسأل عن المدة)",
     "3. 💬 إرسال رسالة",
     "4. ✏️ تغيير الاسم",
-    hasLockName ? "5. 🔓 رفع قفل الاسم"    : "5. 🏷️ قفل الاسم الحالي",
+    hasLockName ? "5. 🔓 رفع قفل الاسم"  : "5. 🏷️ قفل الاسم الحالي",
     "6. 📊 إحصائيات",
     "7. 👥 معلومات الأعضاء",
     "8. 🎛️ إرسال لوحة التحكم للمجموعة",
@@ -120,9 +111,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
     "",
     "0. ↩️ رجوع للقائمة",
     "00. ❌ إلغاء",
-  ].join("\n");
-
-  await api.sendMessage(menu, replyTID);
+  ].join("\n"), replyTID);
 
   pendingReplies.set(senderID, {
     handler: async (input, _api, _ev) => {
@@ -130,22 +119,20 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
       const rSID = _ev.senderID;
       const ch   = input.trim();
 
+      // Cancel — no new handler, let index.js finally clean up
       if (ch === "00" || ch === "إلغاء") {
-        pendingReplies.del(rSID);
         return _api.sendMessage("❌ تم الإلغاء.", rTID);
       }
 
-      // 0 = back to group list (re-run remote)
+      // Back to list — handleRemote registers a new list handler, so KEEP
       if (ch === "0" || ch === "رجوع") {
-        pendingReplies.del(rSID);
-        return handleRemote(_api, _ev);
+        await handleRemote(_api, _ev);
+        return pendingReplies.KEEP; // FIX: protect the new list handler
       }
-
-      pendingReplies.del(rSID);
 
       switch (ch) {
 
-        // ── 1: toggle lock ───────────────────────────────────────────────
+        // 1 — toggle lock (direct, no sub-handler)
         case "1":
           if (isLocked) {
             lockedThreads.delete(target.threadID);
@@ -158,7 +145,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           }
           break;
 
-        // ── 2: toggle mute ───────────────────────────────────────────────
+        // 2 — toggle mute (sub-handler when setting duration)
         case "2":
           if (isMuted) {
             mutedThreads.delete(target.threadID);
@@ -168,22 +155,21 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
             await _api.sendMessage("⏱️ كم دقيقة تريد كتم «" + target.name + "»؟ (مثال: 30)", rTID);
             pendingReplies.set(rSID, {
               handler: async (inp, a2, ev2) => {
-                pendingReplies.del(ev2.senderID);
                 const mins = Math.max(1, parseInt(inp) || 60);
                 mutedThreads.set(target.threadID, Date.now() + mins * 60000);
                 a2.sendMessage("✅ تم كتم «" + target.name + "» لمدة " + mins + " دقيقة.", ev2.threadID);
                 a2.sendMessage("🔇 تم الكتم لمدة " + mins + " دقيقة عن بُعد.", target.threadID).catch(() => {});
               },
             });
+            return pendingReplies.KEEP; // FIX: protect the sub-handler
           }
           break;
 
-        // ── 3: send message ──────────────────────────────────────────────
+        // 3 — send message (sub-handler for message text)
         case "3":
           await _api.sendMessage("💬 اكتب الرسالة التي تريد إرسالها إلى «" + target.name + "»:", rTID);
           pendingReplies.set(rSID, {
             handler: async (msg, a2, ev2) => {
-              pendingReplies.del(ev2.senderID);
               if (!msg.trim()) return a2.sendMessage("❌ رسالة فارغة، تم الإلغاء.", ev2.threadID);
               try {
                 await a2.sendMessage(msg.trim(), target.threadID);
@@ -193,9 +179,9 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
               }
             },
           });
-          break;
+          return pendingReplies.KEEP; // FIX: protect the sub-handler
 
-        // ── 4: rename ────────────────────────────────────────────────────
+        // 4 — rename (sub-handler for new name)
         case "4":
           if (lockedNames.has(target.threadID)) {
             return _api.sendMessage("⛔ الاسم مقفل. استخدم الخيار 5 لرفع القفل أولاً.", rTID);
@@ -203,7 +189,6 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           await _api.sendMessage("✏️ اكتب الاسم الجديد لـ «" + target.name + "»:", rTID);
           pendingReplies.set(rSID, {
             handler: async (newName, a2, ev2) => {
-              pendingReplies.del(ev2.senderID);
               const n = newName.trim();
               if (!n) return a2.sendMessage("❌ اسم فارغ، تم الإلغاء.", ev2.threadID);
               try {
@@ -216,9 +201,9 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
               }
             },
           });
-          break;
+          return pendingReplies.KEEP; // FIX: protect the sub-handler
 
-        // ── 5: toggle lockname ───────────────────────────────────────────
+        // 5 — toggle lockname (direct)
         case "5":
           if (hasLockName) {
             lockedNames.delete(target.threadID);
@@ -231,7 +216,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           }
           break;
 
-        // ── 6: stats ─────────────────────────────────────────────────────
+        // 6 — stats (direct)
         case "6": {
           const st   = groupStats.get(target.threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
           const last = st.lastMessageAt ? new Date(st.lastMessageAt).toLocaleString("ar-SA") : "لا يوجد";
@@ -245,7 +230,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           break;
         }
 
-        // ── 7: member info ───────────────────────────────────────────────
+        // 7 — member info (direct)
         case "7":
           try {
             const info = await _api.getThreadInfo(target.threadID);
@@ -260,7 +245,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           }
           break;
 
-        // ── 8: send panel to group ───────────────────────────────────────
+        // 8 — send panel to group (direct)
         case "8":
           try {
             await showPanel(_api, target.threadID);
@@ -270,7 +255,7 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
           }
           break;
 
-        // ── 9: autoreply toggle / set ────────────────────────────────────
+        // 9 — autoreply (sub-handler only when setting from scratch)
         case "9":
           if (hasAR && ar.enabled) {
             ar.enabled = false;
@@ -284,7 +269,6 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
             await _api.sendMessage("🤖 اكتب رسالة الرد التلقائي لـ «" + target.name + "»:", rTID);
             pendingReplies.set(rSID, {
               handler: async (msg, a2, ev2) => {
-                pendingReplies.del(ev2.senderID);
                 const m = msg.trim();
                 if (!m) return a2.sendMessage("❌ رسالة فارغة، تم الإلغاء.", ev2.threadID);
                 const ex = autoReplies.get(target.threadID) || { lastSent: new Map(), cooldownMs: 30 * 60000 };
@@ -292,25 +276,29 @@ async function showRemoteMenu(api, replyTID, senderID, target) {
                 a2.sendMessage("✅ تم تفعيل الرد التلقائي في «" + target.name + "»:\n" + m, ev2.threadID);
               },
             });
+            return pendingReplies.KEEP; // FIX: protect the sub-handler
           }
           break;
 
         default:
           _api.sendMessage("❌ خيار غير صحيح. اختر رقماً من القائمة.", rTID);
       }
+
+      // Direct actions (1, 5, 6, 7, 8, and non-sub branches of 2/9)
+      // return undefined — index.js finally cleans up correctly ✅
     },
   });
 }
 
-// ── Remote: group list with pagination ───────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// handleRemote — paginated group list
+// ─────────────────────────────────────────────────────────────────────────────
 const PAGE_SIZE = 10;
 
 function buildGroupPage(groups, page, scanMeta) {
   const total = Math.ceil(groups.length / PAGE_SIZE);
   const start = page * PAGE_SIZE;
   const slice = groups.slice(start, start + PAGE_SIZE);
-
   const sourceTag = scanMeta.fromCache ? " (من الذاكرة)" : " (" + scanMeta.duration + "ms)";
   const lines = [
     "🎛️ التحكم عن بُعد" + sourceTag,
@@ -318,14 +306,12 @@ function buildGroupPage(groups, page, scanMeta) {
     "📋 اختر مجموعة — صفحة " + (page + 1) + " / " + total + ":",
     "",
   ];
-
   slice.forEach((g, i) => {
     const n     = start + i + 1;
     const lock  = lockedThreads.has(g.threadID) ? " 🔒" : "";
     const muted = (mutedThreads.get(g.threadID) || 0) > Date.now() ? " 🔇" : "";
     lines.push(n + ". " + g.name + lock + muted + "  (" + (g.memberCount || "؟") + " عضو)");
   });
-
   lines.push("");
   if (total > 1) {
     const nav = [];
@@ -333,33 +319,23 @@ function buildGroupPage(groups, page, scanMeta) {
     if (page < total - 1) nav.push("تالي >");
     if (nav.length)       lines.push("التنقل: " + nav.join("  |  "));
   }
-  if (scanMeta.errors && scanMeta.errors.length > 0) {
+  if (scanMeta.errors && scanMeta.errors.length > 0)
     lines.push("⚠️ " + scanMeta.errors.length + " مجموعة/خطأ لم يُجلب");
-  }
   lines.push("0. ❌ إلغاء");
-
   return lines.join("\n");
 }
 
 async function handleRemote(api, event) {
   const { threadID, senderID } = event;
 
-  if (!isAdmin(senderID)) {
+  if (!isAdmin(senderID))
     return api.sendMessage("⛔ التحكم عن بُعد خاص بمشرف البوت فقط.", threadID);
-  }
 
-  // Notify user we're scanning
-  await api.sendMessage(
-    "🔄 جاري البحث عن المجموعات...\nقد يستغرق هذا بضع ثوانٍ.",
-    threadID
-  );
+  await api.sendMessage("🔄 جاري البحث عن المجموعات...\nقد يستغرق هذا بضع ثوانٍ.", threadID);
 
   let scanResult;
-  try {
-    scanResult = await threadScanner.scan();
-  } catch (e) {
-    return api.sendMessage("❌ فشل البحث: " + e.message, threadID);
-  }
+  try { scanResult = await threadScanner.scan(); }
+  catch (e) { return api.sendMessage("❌ فشل البحث: " + e.message, threadID); }
 
   const { groups } = scanResult;
 
@@ -374,9 +350,7 @@ async function handleRemote(api, event) {
     );
   }
 
-  // Pagination state (captured in closure)
   let page = 0;
-
   await api.sendMessage(buildGroupPage(groups, page, scanResult), threadID);
 
   pendingReplies.set(senderID, {
@@ -385,26 +359,24 @@ async function handleRemote(api, event) {
       const rSID = _ev.senderID;
       const ch   = input.trim();
 
-      // Navigation
+      // Navigation — always KEEP
       if (ch === ">" || ch === "تالي") {
         const total = Math.ceil(groups.length / PAGE_SIZE);
         if (page < total - 1) page++;
         await _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
-        return pendingReplies.KEEP; // keep pagination alive
+        return pendingReplies.KEEP;
       }
       if (ch === "<" || ch === "سابق") {
         if (page > 0) page--;
         await _api.sendMessage(buildGroupPage(groups, page, scanResult), rTID);
-        return pendingReplies.KEEP; // keep pagination alive
+        return pendingReplies.KEEP;
       }
 
-      // Cancel
-      if (ch === "0" || ch === "إلغاء") {
-        pendingReplies.del(rSID);
+      // Cancel — let index.js finally clean up
+      if (ch === "0" || ch === "إلغاء")
         return _api.sendMessage("❌ تم الإلغاء.", rTID);
-      }
 
-      // Group selection
+      // Invalid input — keep list alive
       const idx = parseInt(ch) - 1;
       if (isNaN(idx) || idx < 0 || idx >= groups.length) {
         await _api.sendMessage(
@@ -413,24 +385,24 @@ async function handleRemote(api, event) {
           "، أو 0 للإلغاء.",
           rTID
         );
-        return pendingReplies.KEEP; // keep pagination alive on invalid input
+        return pendingReplies.KEEP;
       }
 
       const target = groups[idx];
-      pendingReplies.del(rSID);
-
-      // Validate thread before showing menu
-      if (!target || !target.threadID) {
+      if (!target || !target.threadID)
         return _api.sendMessage("❌ بيانات المجموعة تالفة، اختر مجموعة أخرى.", rTID);
-      }
 
+      // FIX: showRemoteMenu registers a new action-menu handler.
+      // Return KEEP so index.js does NOT delete it in its finally block.
       await showRemoteMenu(_api, rTID, rSID, target);
+      return pendingReplies.KEEP;
     },
   });
 }
 
-// ── execute ───────────────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// module.exports
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
   name: "control",
   aliases: ["ctrl", "panel", "cp"],
@@ -443,54 +415,39 @@ module.exports = {
     const sub = (args[0] || "").toLowerCase();
 
     if (!sub || sub === "info") return showPanel(api, threadID);
-
-    // ── remote ─────────────────────────────────────────────────────────────
     if (sub === "remote" || sub === "r") return handleRemote(api, event);
 
-    // ── scanner diagnostics (admin only) ───────────────────────────────────
     if (sub === "scan" || sub === "scanner") {
       if (!isAdmin(senderID)) return api.sendMessage("⛔ للمشرفين فقط.", threadID);
       const diag = threadScanner.diagnostics();
       return api.sendMessage([
         "🔍 ThreadScanner",
         "━━━━━━━━━━━━━━━━",
-        "API جاهز : " + (diag.apiReady ? "نعم" : "لا"),
-        "يجري فحص: " + (diag.scanning ? "نعم" : "لا"),
+        "API جاهز     : " + (diag.apiReady ? "نعم" : "لا"),
+        "يجري فحص    : " + (diag.scanning ? "نعم" : "لا"),
         "عدد الفحوصات: " + diag.scanCount,
-        "آخر فحص: " + (diag.lastScanAt || "لم يُجرَ بعد"),
-        "المجموعات المخزنة: " + diag.cacheSize,
-        "مدة آخر فحص: " + (diag.lastDuration ? diag.lastDuration + "ms" : "–"),
+        "آخر فحص     : " + (diag.lastScanAt || "لم يُجرَ بعد"),
+        "المجموعات   : " + diag.cacheSize,
+        "مدة آخر فحص : " + (diag.lastDuration ? diag.lastDuration + "ms" : "–"),
         "أخطاء آخر فحص: " + (diag.lastErrors.length || 0),
       ].join("\n"), threadID);
     }
 
-    // ── admin guard ─────────────────────────────────────────────────────────
     const NEED_ADMIN = ["lock","unlock","mute","unmute","rename","kick","ar","autoreply","lockname","unlockname"];
-    if (NEED_ADMIN.includes(sub) && !isAdmin(senderID)) {
+    if (NEED_ADMIN.includes(sub) && !isAdmin(senderID))
       return api.sendMessage("⛔ هذا الأمر خاص بالمشرفين فقط.", threadID);
-    }
 
-    if (sub === "lock") {
-      lockedThreads.add(threadID);
-      return api.sendMessage("🔒 تم قفل المجموعة.", threadID);
-    }
-
-    if (sub === "unlock") {
-      lockedThreads.delete(threadID);
-      return api.sendMessage("🔓 تم فتح قفل المجموعة.", threadID);
-    }
+    if (sub === "lock")   { lockedThreads.add(threadID);    return api.sendMessage("🔒 تم قفل المجموعة.", threadID); }
+    if (sub === "unlock") { lockedThreads.delete(threadID); return api.sendMessage("🔓 تم فتح قفل المجموعة.", threadID); }
 
     if (sub === "lockname") {
       const nameToLock = args.slice(1).join(" ").trim();
       let finalName = nameToLock;
-      if (!finalName) {
-        try { const info = await api.getThreadInfo(threadID); finalName = info.name || ""; } catch {}
-      }
+      if (!finalName) { try { finalName = (await api.getThreadInfo(threadID)).name || ""; } catch {} }
       if (!finalName) return api.sendMessage("❌ الاستخدام: -control lockname [الاسم]", threadID);
       if (nameToLock) { try { await api.gcname(finalName, threadID); } catch {} }
       lockedNames.set(threadID, finalName);
-      const c = groupsCache.get(threadID) || {};
-      groupsCache.set(threadID, { ...c, name: finalName });
+      groupsCache.set(threadID, { ...(groupsCache.get(threadID) || {}), name: finalName });
       return api.sendMessage("🏷️ تم قفل الاسم على:\n«" + finalName + "»", threadID);
     }
 
@@ -506,25 +463,18 @@ module.exports = {
       return api.sendMessage("🔇 تم كتم المجموعة لمدة " + mins + " دقيقة.", threadID);
     }
 
-    if (sub === "unmute") {
-      mutedThreads.delete(threadID);
-      return api.sendMessage("🔊 تم رفع الكتم.", threadID);
-    }
+    if (sub === "unmute") { mutedThreads.delete(threadID); return api.sendMessage("🔊 تم رفع الكتم.", threadID); }
 
     if (sub === "rename") {
       const newName = args.slice(1).join(" ").trim();
       if (!newName) return api.sendMessage("❌ الاستخدام: -control rename [الاسم]", threadID);
-      if (lockedNames.has(threadID)) {
+      if (lockedNames.has(threadID))
         return api.sendMessage("⛔ الاسم مقفل على «" + lockedNames.get(threadID) + "». استخدم unlockname أولاً.", threadID);
-      }
       try {
         await api.gcname(newName, threadID);
-        const c = groupsCache.get(threadID) || {};
-        groupsCache.set(threadID, { ...c, name: newName });
+        groupsCache.set(threadID, { ...(groupsCache.get(threadID) || {}), name: newName });
         return api.sendMessage("✏️ تم تغيير الاسم إلى:\n" + newName, threadID);
-      } catch (e) {
-        return api.sendMessage("❌ فشل تغيير الاسم: " + e.message, threadID);
-      }
+      } catch (e) { return api.sendMessage("❌ فشل تغيير الاسم: " + e.message, threadID); }
     }
 
     if (sub === "members") {
@@ -533,21 +483,16 @@ module.exports = {
         const ids      = info.participantIDs || [];
         const adminSet = new Set((info.adminIDs || []).map(a => a.id || a));
         const uInfos   = ids.length ? await api.getUserInfo(ids) : {};
-        const lines    = ids.map((id, i) =>
-          (i + 1) + ". " + (uInfos[id]?.name || id) + (adminSet.has(id) ? " 👑" : "")
-        );
+        const lines    = ids.map((id, i) => (i + 1) + ". " + (uInfos[id]?.name || id) + (adminSet.has(id) ? " 👑" : ""));
         return api.sendMessage("👥 الأعضاء (" + ids.length + "):\n" + lines.join("\n"), threadID);
-      } catch (e) {
-        return api.sendMessage("❌ تعذّر جلب الأعضاء: " + e.message, threadID);
-      }
+      } catch (e) { return api.sendMessage("❌ تعذّر جلب الأعضاء: " + e.message, threadID); }
     }
 
     if (sub === "stats") {
       const st   = groupStats.get(threadID) || { messageCount: 0, commandCount: 0, lastMessageAt: 0 };
       const last = st.lastMessageAt ? new Date(st.lastMessageAt).toLocaleString("ar-SA") : "لا يوجد";
       return api.sendMessage([
-        "📊 إحصائيات المجموعة",
-        "━━━━━━━━━━━━━━━━━━",
+        "📊 إحصائيات المجموعة", "━━━━━━━━━━━━━━━━━━",
         "📨 الرسائل  : " + st.messageCount,
         "⚡ الأوامر  : " + st.commandCount,
         "🕒 آخر نشاط: " + last,
@@ -560,26 +505,20 @@ module.exports = {
       try {
         await api.gcmember("remove", String(target), threadID);
         return api.sendMessage("🚫 تم الطرد بنجاح.", threadID);
-      } catch (e) {
-        return api.sendMessage("❌ فشل الطرد: " + e.message, threadID);
-      }
+      } catch (e) { return api.sendMessage("❌ فشل الطرد: " + e.message, threadID); }
     }
 
     if (sub === "ar" || sub === "autoreply") {
       const action = (args[1] || "show").toLowerCase();
-
       if (action === "show" || action === "status") {
         const ar = autoReplies.get(threadID);
         if (!ar || !ar.message) return api.sendMessage("🤖 لا يوجد رد تلقائي.\nالاستخدام: -control ar set [رسالة]", threadID);
-        return api.sendMessage([
-          "🤖 الرد التلقائي",
-          "━━━━━━━━━━━━━━━━",
+        return api.sendMessage([ "🤖 الرد التلقائي", "━━━━━━━━━━━━━━━━",
           "الحالة  : " + (ar.enabled ? "مفعّل ✅" : "معطّل ❌"),
           "الرسالة : " + ar.message,
           "الانتظار: " + Math.round(ar.cooldownMs / 60000) + " دقيقة/مستخدم",
         ].join("\n"), threadID);
       }
-
       if (action === "set") {
         const msg = args.slice(2).join(" ").trim();
         if (!msg) return api.sendMessage("❌ الاستخدام: -control ar set [رسالة]", threadID);
@@ -587,29 +526,23 @@ module.exports = {
         autoReplies.set(threadID, { ...ex, message: msg, enabled: true });
         return api.sendMessage("🤖 تم تفعيل الرد التلقائي:\n" + msg, threadID);
       }
-
       if (action === "off" || action === "disable") {
         const ex = autoReplies.get(threadID);
         if (ex) { ex.enabled = false; autoReplies.set(threadID, ex); }
         return api.sendMessage("🤖 تم تعطيل الرد التلقائي.", threadID);
       }
-
       if (action === "on" || action === "enable") {
         const ex = autoReplies.get(threadID);
         if (!ex || !ex.message) return api.sendMessage("❌ لا توجد رسالة. استخدم: -control ar set [رسالة]", threadID);
-        ex.enabled = true;
-        autoReplies.set(threadID, ex);
+        ex.enabled = true; autoReplies.set(threadID, ex);
         return api.sendMessage("🤖 تم تفعيل الرد التلقائي.", threadID);
       }
-
       if (action === "wait" || action === "cooldown") {
         const mins = parseInt(args[2]) || 30;
         const ex   = autoReplies.get(threadID) || { message: "", enabled: false, lastSent: new Map() };
-        ex.cooldownMs = mins * 60000;
-        autoReplies.set(threadID, ex);
+        ex.cooldownMs = mins * 60000; autoReplies.set(threadID, ex);
         return api.sendMessage("⏱️ وقت الانتظار: " + mins + " دقيقة/مستخدم.", threadID);
       }
-
       return api.sendMessage([
         "❓ الاستخدام:",
         "  -control ar show       ← عرض الإعدادات",
