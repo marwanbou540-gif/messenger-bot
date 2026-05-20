@@ -1,25 +1,12 @@
 "use strict";
 
-/**
- * music.js — Audio command powered by musicEngine (production-grade).
- *
- * Engine features (handled transparently):
- *   ✅ yt-dlp download via native Node.js HTTPS (no curl/wget)
- *   ✅ Automatic redirect following
- *   ✅ Binary integrity validation + auto-repair
- *   ✅ iTunes 30s preview fallback when YouTube fails
- *   ✅ Concurrency semaphore (max 2 parallel downloads)
- *   ✅ Per-user cooldown (35s)
- *   ✅ Automatic temp file cleanup
- */
-
 const fs     = require("fs");
 const engine = require("../utils/musicEngine");
 
 module.exports = {
   name: "music",
   aliases: ["song", "اغنية", "أغنية", "mp3"],
-  description: "البحث عن أغنية وإرسالها كاملة.",
+  description: "البحث عن أغنية وإرسالها (YouTube أو iTunes كاحتياط).",
   usage: "music [اسم الأغنية أو الفنان]",
   category: "Entertainment",
 
@@ -31,12 +18,12 @@ module.exports = {
     if (query === "diag") {
       const d = engine.diagnostics();
       return api.sendMessage(
-        `🔧 تشخيص المحرك الموسيقي:\n` +
-        `• yt-dlp: ${d.ytdlpPath}\n` +
-        `• تحميلات جارية: ${d.concurrent}\n` +
-        `• في الانتظار: ${d.queued}\n` +
-        `• ملفات مؤقتة: ${d.tmpFiles}\n` +
-        `• مجلد مؤقت: ${d.tmpDir}`,
+        "🔧 تشخيص محرك الموسيقى:\n" +
+        "• yt-dlp   : " + d.ytdlpPath + "\n" +
+        "• محدَّث   : " + (d.autoUpdated ? "نعم" : "لا") + "\n" +
+        "• يعمل الآن: " + d.concurrent + "\n" +
+        "• ينتظر   : " + d.queued + "\n" +
+        "• ملفات مؤقتة: " + d.tmpFiles,
         threadID
       );
     }
@@ -56,10 +43,7 @@ module.exports = {
     // ── cooldown ─────────────────────────────────────────────────────────────
     const remaining = engine.userCooldown(senderID);
     if (remaining > 0) {
-      return api.sendMessage(
-        `⏳ انتظر ${remaining} ثانية قبل طلب أغنية أخرى.`,
-        threadID
-      );
+      return api.sendMessage("⏳ انتظر " + remaining + " ثانية قبل طلب أغنية أخرى.", threadID);
     }
     engine.markUser(senderID);
 
@@ -73,13 +57,15 @@ module.exports = {
       return api.sendMessage("😕 " + e.message, threadID).catch(() => {});
     }
 
-    // ── إبلاغ المستخدم بما وجده البوت ───────────────────────────────────────
-    const previewNote = track.preview ? "\n⚠️ معاينة 30 ثانية فقط (iTunes)" : "";
+    // ── إبلاغ المستخدم ───────────────────────────────────────────────────────
+    const sourceLabel = track.provider === "itunes"
+      ? "\n📦 المصدر: iTunes (معاينة 30 ثانية)"
+      : "\n📦 المصدر: YouTube";
     await api.sendMessage(
-      `🎵 وجدتها: ${track.title}` +
-      (track.artist   ? `\n🎤 ${track.artist}`   : "") +
-      (track.duration ? `\n⏱ ${track.duration}` : "") +
-      previewNote +
+      "🎵 " + track.title +
+      (track.artist   ? "\n🎤 " + track.artist   : "") +
+      (track.duration ? "\n⏱ "  + track.duration : "") +
+      sourceLabel +
       "\n⬇️ جاري التحميل...",
       threadID
     ).catch(() => {});
@@ -92,13 +78,15 @@ module.exports = {
       return api.sendMessage("❌ فشل التحميل:\n" + e.message.slice(0, 300), threadID).catch(() => {});
     }
 
-    // ── إرسال ────────────────────────────────────────────────────────────────
+    // ── تجميع النص النهائي بعد التحميل (قد يتغير provider إلى itunes كاحتياط) ──
+    const isPreview = !!track.preview;
     const caption =
       "🎵 " + track.title +
-      (track.artist   ? "\n🎤 " + track.artist   : "") +
-      (track.duration ? "\n⏱ "  + track.duration : "") +
-      (track.preview  ? "\n⚠️ معاينة 30 ثانية (iTunes)" : "");
+      (track.artist   ? "\n🎤 "  + track.artist   : "") +
+      (track.duration ? "\n⏱  "  + track.duration : "") +
+      (isPreview      ? "\n⚠️ معاينة 30 ثانية (iTunes)" : "");
 
+    // ── إرسال ────────────────────────────────────────────────────────────────
     try {
       await Promise.race([
         api.sendMessage({ body: caption, attachment: fs.createReadStream(audioPath) }, threadID),
